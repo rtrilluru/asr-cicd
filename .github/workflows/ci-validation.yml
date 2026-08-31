@@ -1,0 +1,102 @@
+name: CI — PR Validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  validate:
+    name: Pre-Deployment Validation
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: "Gate G3: Migration Naming Validation"
+        shell: bash
+        run: |
+          echo "::group::G3 — Migration Naming Convention"
+          ERRORS=0
+          FILES=$(find migrations/releases -name "*.xml" -o -name "*.sql" 2>/dev/null)
+          if [ -z "$FILES" ]; then
+            echo "No migration files found — skipping"
+          else
+            while IFS= read -r f; do
+              filename=$(basename "$f")
+              if [[ ! "$filename" =~ ^[0-9]{3}- ]]; then
+                echo "::error file=$f::Naming violation: must match NNN-description"
+                ERRORS=$((ERRORS+1))
+              else
+                echo "✓ $f"
+              fi
+            done <<< "$FILES"
+          fi
+          echo "::endgroup::"
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+
+      - name: "Gate G4: Rollback Defined in ChangeSets"
+        shell: bash
+        run: |
+          echo "::group::G4 — Rollback Existence"
+          ERRORS=0
+          XML_FILES=$(find migrations/releases -name "*.xml" 2>/dev/null)
+          if [ -z "$XML_FILES" ]; then
+            echo "No XML changelogs found — skipping"
+          else
+            while IFS= read -r f; do
+              if grep -q "<changeSet" "$f"; then
+                if grep -q "<rollback>" "$f" || grep -q "rollback>" "$f"; then
+                  echo "✓ $f — rollback defined"
+                else
+                  echo "::error file=$f::No <rollback> tag found"
+                  ERRORS=$((ERRORS+1))
+                fi
+              fi
+            done <<< "$XML_FILES"
+          fi
+          echo "::endgroup::"
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+
+      - name: "Gate G5: Security Scan"
+        shell: bash
+        run: |
+          SECRETS=$(grep -riE "(password|secret|api_key|token)\s*[:=]\s*['\"][^'\"]+['\"]" \
+            migrations/ rollbacks/ packages/ scripts/ \
+            --include="*.sql" --include="*.xml" --include="*.sh" -l 2>/dev/null || true)
+          if [ -z "$SECRETS" ]; then
+            echo "✓ No hardcoded credentials detected"
+          else
+            echo "::error::Potential credentials found in: $SECRETS"
+            exit 1
+          fi
+
+      - name: "Gate G6: SQL Syntax Validation (SQLcl)"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'SQLEOF'
+          liquibase validate -changelog-file db.changelog-master.xml
+          EXIT
+          SQLEOF
+          if [ $? -ne 0 ]; then
+            echo "::error::G6 FAILED: Changelog validation errors"
+            exit 1
+          fi
+          echo "✓ Changelog syntax is valid"
+
+      - name: "CI Summary"
+        if: always()
+        shell: bash
+        run: |
+          echo "════════════════════════════════════════"
+          echo "  CI VALIDATION COMPLETE"
+          echo "  Gates: G3, G4, G5, G6"
+          echo "════════════════════════════════════════"
