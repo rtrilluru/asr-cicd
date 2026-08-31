@@ -1,0 +1,152 @@
+name: CD — Deploy to DEV
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - 'migrations/**'
+      - 'packages/**'
+      - 'schema/**'
+      - 'rollbacks/**'
+      - 'apex/**'
+
+concurrency:
+  group: deploy-dev-v2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to DEV Database
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: "Pre-Deploy: Tag database state"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          TAG_NAME="pre-deploy-$(date +%Y%m%d-%H%M%S)"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOF
+          liquibase tag -tag $TAG_NAME
+          EXIT
+          EOF
+          echo "✓ Database tagged as: $TAG_NAME"
+
+      - name: "Gate G9: Dry-Run Migration"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOF'
+          liquibase update-sql -changelog-file db.changelog-master.xml
+          EXIT
+          EOF
+          echo "✓ Dry-run successful"
+
+      - name: "Gate G10: Execute Migration"
+        id: deploy
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOF'
+          liquibase update -changelog-file db.changelog-master.xml
+          EXIT
+          EOF
+          if [ $? -ne 0 ]; then
+            echo "::error::G10 FAILED: Migration execution error"
+            exit 1
+          fi
+          echo "✓ Migration executed successfully"
+
+      - name: "Auto-Rollback (on deploy failure)"
+        if: failure() && steps.deploy.outcome == 'failure'
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOF
+          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          EXIT
+          EOF
+          echo "✓ Rollback complete"
+
+      - name: "Gate G11: Object Validity Check"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOF'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              IF v_invalid > 0 THEN
+                  RAISE_APPLICATION_ERROR(-20001, v_invalid || ' invalid object(s)');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✓ All objects VALID');
+              END IF;
+          END;
+          /
+          EXIT
+          EOF
+
+      - name: "Gate G14: Smoke Tests"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOF'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_count NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_count FROM user_objects
+              WHERE object_name = 'PKG_CUSTOMER_LOAD' AND status = 'VALID';
+              IF v_count >= 2 THEN
+                  DBMS_OUTPUT.PUT_LINE('✓ PKG_CUSTOMER_LOAD is VALID');
+              ELSE
+                  RAISE_APPLICATION_ERROR(-20003, 'Package not valid');
+              END IF;
+          END;
+          /
+          EXIT
+          EOF
+
+      - name: "Deployment Summary"
+        if: success()
+        shell: bash
+        run: |
+          echo "════════════════════════════════════════"
+          echo "  ✓ DEPLOYMENT TO DEV SUCCESSFUL"
+          echo "  Tag: $TAG_NAME"
+          echo "  Commit: ${{ github.sha }}"
+          echo "════════════════════════════════════════"

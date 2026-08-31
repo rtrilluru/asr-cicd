@@ -1,0 +1,46 @@
+name: Rollback Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Liquibase tag to rollback to'
+        required: true
+        type: string
+      confirm:
+        description: 'Type ROLLBACK to confirm'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: Rollback to Tag
+    runs-on: self-hosted
+
+    steps:
+      - name: Validate Confirmation
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "ROLLBACK" ]; then
+            echo "::error::Type ROLLBACK to confirm"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: "Execute Rollback"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+          TAG: ${{ github.event.inputs.tag_name }}
+        run: |
+          export PATH=/opt/sqlcl/bin:$PATH
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOF
+          liquibase rollback -tag $TAG -changelog-file db.changelog-master.xml
+          EXIT
+          EOF
+          echo "✓ Rollback to $TAG complete"
