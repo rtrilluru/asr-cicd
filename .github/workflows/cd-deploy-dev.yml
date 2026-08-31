@@ -10,7 +10,7 @@ on:
       - 'schema/**'
 
 concurrency:
-  group: deploy-dev
+  group: deploy-dev-v2
   cancel-in-progress: false
 
 jobs:
