@@ -40,3 +40,4 @@ prompt --install
 @@application/deployment/buildoptions.sql
 @@application/end_environment.sql
 -- APEX baseline deployed Mon Aug 31 16:52:14 UTC 2026
+-- APEX baseline Mon Aug 31 16:56:24 UTC 2026
