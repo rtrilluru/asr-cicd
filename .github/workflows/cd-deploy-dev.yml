@@ -8,6 +8,8 @@ on:
       - 'migrations/**'
       - 'packages/**'
       - 'schema/**'
+      - 'rollbacks/**'
+      - 'apex/**'
 
 concurrency:
   group: deploy-dev-v2
