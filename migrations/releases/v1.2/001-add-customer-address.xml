@@ -4,6 +4,12 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
-    <include file="releases/v1.1/001-add-customer-phone.xml" relativeToChangelogFile="true"/>
-    <include file="releases/v1.2/001-add-customer-address.xml" relativeToChangelogFile="true"/>
+    <changeSet id="add-customer-address" author="rtrilluru">
+        <addColumn tableName="TGT_CUSTOMER">
+            <column name="CUSTOMER_ADDRESS" type="VARCHAR2(500)"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="TGT_CUSTOMER" columnName="CUSTOMER_ADDRESS"/>
+        </rollback>
+    </changeSet>
 </databaseChangeLog>
