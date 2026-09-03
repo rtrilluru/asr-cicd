@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="create-fn-customer-status" author="rtrilluru">
+        <comment>Function to check customer data completeness</comment>
+        <createProcedure dbms="oracle" endDelimiter="/">
+CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
+RETURN VARCHAR2
+IS
+    v_name      TGT_CUSTOMER.CUSTOMER_NAME%TYPE;
+    v_email     TGT_CUSTOMER.CUSTOMER_EMAIL%TYPE;
+    v_phone     TGT_CUSTOMER.CUSTOMER_PHONE%TYPE;
+    v_fields    NUMBER := 0;
+BEGIN
+    SELECT CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE
+    INTO v_name, v_email, v_phone
+    FROM TGT_CUSTOMER
+    WHERE CUSTOMER_ID = p_customer_id;
+
+    IF v_name IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_email IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_phone IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+
+    IF v_fields = 3 THEN
+        RETURN 'COMPLETE';
+    ELSIF v_fields >= 1 THEN
+        RETURN 'PARTIAL';
+    ELSE
+        RETURN 'INCOMPLETE';
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'NOT_FOUND';
+END FN_CUSTOMER_STATUS;
+/
+        </createProcedure>
+        <rollback>
+            <sql>DROP FUNCTION FN_CUSTOMER_STATUS</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

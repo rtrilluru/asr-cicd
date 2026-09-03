@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- ChangeSet 1: Create the audit table -->
+    <changeSet id="create-customer-audit-table" author="rtrilluru">
+        <comment>Audit table to track all changes to TGT_CUSTOMER</comment>
+        <createTable tableName="TGT_CUSTOMER_AUDIT">
+            <column name="AUDIT_ID" type="NUMBER" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="CUSTOMER_ID" type="NUMBER"/>
+            <column name="ACTION" type="VARCHAR2(10)"/>
+            <column name="CHANGED_BY" type="VARCHAR2(100)"/>
+            <column name="CHANGE_DATE" type="TIMESTAMP" defaultValueComputed="SYSTIMESTAMP"/>
+            <column name="OLD_NAME" type="VARCHAR2(200)"/>
+            <column name="NEW_NAME" type="VARCHAR2(200)"/>
+            <column name="OLD_EMAIL" type="VARCHAR2(200)"/>
+            <column name="NEW_EMAIL" type="VARCHAR2(200)"/>
+        </createTable>
+        <rollback>
+            <dropTable tableName="TGT_CUSTOMER_AUDIT"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ChangeSet 2: Create the audit trigger -->
+    <changeSet id="create-trg-customer-audit" author="rtrilluru">
+        <comment>Trigger to capture INSERT/UPDATE/DELETE on TGT_CUSTOMER</comment>
+        <createProcedure dbms="oracle" endDelimiter="/">
+CREATE OR REPLACE TRIGGER TRG_CUSTOMER_AUDIT
+AFTER INSERT OR UPDATE OR DELETE ON TGT_CUSTOMER
+FOR EACH ROW
+DECLARE
+    v_action VARCHAR2(10);
+BEGIN
+    IF INSERTING THEN
+        v_action := 'INSERT';
+    ELSIF UPDATING THEN
+        v_action := 'UPDATE';
+    ELSE
+        v_action := 'DELETE';
+    END IF;
+
+    INSERT INTO TGT_CUSTOMER_AUDIT (
+        CUSTOMER_ID, ACTION, CHANGED_BY, CHANGE_DATE,
+        OLD_NAME, NEW_NAME, OLD_EMAIL, NEW_EMAIL
+    ) VALUES (
+        NVL(:NEW.CUSTOMER_ID, :OLD.CUSTOMER_ID),
+        v_action,
+        USER,
+        SYSTIMESTAMP,
+        :OLD.CUSTOMER_NAME,
+        :NEW.CUSTOMER_NAME,
+        :OLD.CUSTOMER_EMAIL,
+        :NEW.CUSTOMER_EMAIL
+    );
+END TRG_CUSTOMER_AUDIT;
+/
+        </createProcedure>
+        <rollback>
+            <sql>DROP TRIGGER TRG_CUSTOMER_AUDIT</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
