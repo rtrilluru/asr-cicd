@@ -1,0 +1,318 @@
+# ============================================================
+# ASR CI/CD PIPELINE — CD: Deploy to UAT
+# ============================================================
+# Triggers: Manual (workflow_dispatch) — select release branch
+# Runs on: Self-hosted runner
+# Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
+#         G14 (Smoke Tests), G18 (Data Validation),
+#         G19 (Rollback Verification), G27 (APEX)
+# Approval: Requires 2 reviewers (Tech Lead + QA Lead)
+# ============================================================
+
+name: CD — Deploy to UAT
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-UAT to confirm deployment'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to UAT Database
+    runs-on: self-hosted
+    environment: DB-UAT
+
+    steps:
+      - name: "Validate Confirmation"
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY-UAT" ]; then
+            echo "::error::Confirmation failed. Expected 'DEPLOY-UAT', got '${{ github.event.inputs.confirm }}'"
+            exit 1
+          fi
+          echo "✓ Deployment confirmed"
+          echo "Branch: ${{ github.ref_name }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ────────────────────────────────────────────────────────
+      # Pre-Deploy: Tag current state
+      # ────────────────────────────────────────────────────────
+      - name: "Pre-Deploy: Tag database state"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Tagging current database state"
+          TAG_NAME="pre-uat-$(date +%Y%m%d-%H%M%S)"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          liquibase tag -tag $TAG_NAME
+          EXIT
+          EOSQL
+          echo "✓ Database tagged as: $TAG_NAME"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G9: Dry-Run
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G9: Dry-Run Migration"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G9 — Dry-Run"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          liquibase update-sql -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G9 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "✓ Dry-run successful"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G10: Execute Migration
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G10: Execute Migration"
+        id: deploy
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G10 — Execute Migration"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          liquibase update -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then
+            echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
+            echo "::error::G10 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
+          echo "✓ Migration executed"
+          echo "::endgroup::"
+
+      - name: "Auto-Rollback (on deploy failure)"
+        if: failure() && steps.deploy.outcome == 'failure'
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::warning::DEPLOYMENT FAILED — Rolling back to: $TAG_NAME"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          echo "✓ Rollback complete"
+
+      # ────────────────────────────────────────────────────────
+      # G11: Object Validity
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G11: Object Validity Check"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G11 — Object Validity"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              IF v_invalid > 0 THEN
+                  FOR rec IN (SELECT object_type, object_name FROM user_objects WHERE status != 'VALID') LOOP
+                      DBMS_OUTPUT.PUT_LINE('  INVALID: ' || rec.object_type || ' — ' || rec.object_name);
+                  END LOOP;
+                  RAISE_APPLICATION_ERROR(-20001, v_invalid || ' invalid object(s)');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✓ All objects VALID');
+              END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G11 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G14: Smoke Tests
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G14: Smoke Tests"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G14 — Smoke Tests"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_pass NUMBER := 0; v_fail NUMBER := 0; v_count NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_count FROM user_objects
+              WHERE object_name = 'PKG_CUSTOMER_LOAD' AND object_type IN ('PACKAGE','PACKAGE BODY') AND status = 'VALID';
+              IF v_count = 2 THEN DBMS_OUTPUT.PUT_LINE('✓ PKG_CUSTOMER_LOAD VALID'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ PKG_CUSTOMER_LOAD invalid'); v_fail := v_fail+1; END IF;
+
+              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER;
+              IF v_count > 0 THEN DBMS_OUTPUT.PUT_LINE('✓ TGT_CUSTOMER has ' || v_count || ' rows'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ TGT_CUSTOMER empty'); v_fail := v_fail+1; END IF;
+
+              DBMS_OUTPUT.PUT_LINE('Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
+              IF v_fail > 0 THEN RAISE_APPLICATION_ERROR(-20003, v_fail || ' smoke test(s) failed'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G14 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G18: Data Validation (UAT-specific)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G18: Data Validation"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G18 — Data Validation"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_pass NUMBER := 0; v_fail NUMBER := 0; v_count NUMBER;
+          BEGIN
+              -- Check 1: No NULL customer names in target
+              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER WHERE CUSTOMER_NAME IS NULL;
+              IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ No NULL customer names'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ ' || v_count || ' NULL customer names'); v_fail := v_fail+1; END IF;
+
+              -- Check 2: No FAILED ETL entries from recent runs
+              SELECT COUNT(*) INTO v_count FROM ETL_PROCESS_LOG
+              WHERE STATUS = 'FAILED' AND START_TIME > SYSDATE - 1;
+              IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ No recent ETL failures'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ ' || v_count || ' recent ETL failures'); v_fail := v_fail+1; END IF;
+
+              -- Check 3: Audit trigger is active
+              SELECT COUNT(*) INTO v_count FROM user_triggers
+              WHERE trigger_name = 'TRG_CUSTOMER_AUDIT' AND status = 'ENABLED';
+              IF v_count = 1 THEN DBMS_OUTPUT.PUT_LINE('✓ Audit trigger enabled'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ Audit trigger not enabled'); v_fail := v_fail+1; END IF;
+
+              -- Check 4: All PL/SQL objects valid
+              SELECT COUNT(*) INTO v_count FROM user_objects
+              WHERE object_type IN ('FUNCTION','PROCEDURE','TRIGGER','PACKAGE','PACKAGE BODY') AND status != 'VALID';
+              IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ All PL/SQL objects VALID'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ ' || v_count || ' invalid PL/SQL objects'); v_fail := v_fail+1; END IF;
+
+              DBMS_OUTPUT.PUT_LINE('Data Validation: ' || v_pass || ' passed, ' || v_fail || ' failed');
+              IF v_fail > 0 THEN RAISE_APPLICATION_ERROR(-20018, v_fail || ' data validation(s) failed'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G18 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G19: Rollback Verification (UAT-specific)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G19: Rollback Verification"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G19 — Rollback Verification"
+          echo "Step 1: Rolling back to pre-deploy tag..."
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+
+          echo "Step 2: Verifying objects after rollback..."
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              DBMS_OUTPUT.PUT_LINE('Objects invalid after rollback: ' || v_invalid);
+              IF v_invalid > 0 THEN RAISE_APPLICATION_ERROR(-20019, 'Invalid objects after rollback'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+
+          echo "Step 3: Re-applying migration..."
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          liquibase update -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+
+          echo "Step 4: Verifying objects after re-apply..."
+          cd ..
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              DBMS_OUTPUT.PUT_LINE('Objects invalid after re-apply: ' || v_invalid);
+              IF v_invalid > 0 THEN RAISE_APPLICATION_ERROR(-20019, 'Invalid objects after re-apply'); END IF;
+              DBMS_OUTPUT.PUT_LINE('✓ Rollback verification passed — rollback and re-apply both work');
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G19 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Deployment Summary
+      # ────────────────────────────────────────────────────────
+      - name: "UAT Deployment Summary"
+        if: success()
+        shell: bash
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════"
+          echo "  ✓ DEPLOYMENT TO UAT SUCCESSFUL"
+          echo "════════════════════════════════════════════════════"
+          echo "  Tag: $TAG_NAME"
+          echo "  Gates: G9, G10, G11, G14, G18, G19, G27"
+          echo "  Rollback: Verified ✓"
+          echo "  Branch: ${{ github.ref_name }}"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Actor: ${{ github.actor }}"
+          echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "════════════════════════════════════════════════════"

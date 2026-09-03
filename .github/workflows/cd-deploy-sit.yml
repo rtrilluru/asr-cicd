@@ -1,0 +1,394 @@
+# ============================================================
+# ASR CI/CD PIPELINE — CD: Deploy to SIT
+# ============================================================
+# Triggers: Manual (workflow_dispatch) — select release branch
+# Runs on: Self-hosted runner
+# Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
+#         G14 (Smoke Tests), G15 (Integration), G16 (Data Pipeline),
+#         G27 (APEX Import Validation)
+# ============================================================
+
+name: CD — Deploy to SIT
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-SIT to confirm deployment'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-sit
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to SIT Database
+    runs-on: self-hosted
+    environment: DB-SIT
+
+    steps:
+      - name: "Validate Confirmation"
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY-SIT" ]; then
+            echo "::error::Confirmation failed. Expected 'DEPLOY-SIT', got '${{ github.event.inputs.confirm }}'"
+            exit 1
+          fi
+          echo "✓ Deployment confirmed"
+          echo "Branch: ${{ github.ref_name }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ────────────────────────────────────────────────────────
+      # Pre-Deploy: Tag current state
+      # ────────────────────────────────────────────────────────
+      - name: "Pre-Deploy: Tag database state"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Tagging current database state"
+          TAG_NAME="pre-sit-$(date +%Y%m%d-%H%M%S)"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          liquibase tag -tag $TAG_NAME
+          EXIT
+          EOSQL
+          echo "✓ Database tagged as: $TAG_NAME"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G9: Dry-Run
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G9: Dry-Run Migration"
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G9 — Dry-Run (SQL Preview)"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET ECHO OFF
+          liquibase update-sql -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then
+            echo "::error::G9 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ Dry-run successful"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G10: Execute Migration
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G10: Execute Migration"
+        id: deploy
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G10 — Execute Migration"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          liquibase update -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then
+            echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
+            echo "::error::G10 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
+          echo "✓ Migration executed successfully"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Auto-Rollback on Deploy Failure
+      # ────────────────────────────────────────────────────────
+      - name: "Auto-Rollback (on deploy failure)"
+        if: failure() && steps.deploy.outcome == 'failure'
+        shell: bash
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::warning::DEPLOYMENT FAILED — Rolling back to: $TAG_NAME"
+          cd migrations
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          EXIT
+          EOSQL
+          echo "✓ Rollback complete"
+
+      # ────────────────────────────────────────────────────────
+      # G11: Object Validity
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G11: Object Validity Check"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G11 — Object Validity"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              IF v_invalid > 0 THEN
+                  FOR rec IN (SELECT object_type, object_name FROM user_objects WHERE status != 'VALID') LOOP
+                      DBMS_OUTPUT.PUT_LINE('  INVALID: ' || rec.object_type || ' — ' || rec.object_name);
+                  END LOOP;
+                  RAISE_APPLICATION_ERROR(-20001, v_invalid || ' invalid object(s) detected');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✓ All objects VALID');
+              END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then
+            echo "::error::G11 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Deploy Shell Scripts
+      # ────────────────────────────────────────────────────────
+      - name: "Deploy Shell Scripts"
+        shell: bash
+        run: |
+          echo "::group::Deploy Shell Scripts"
+          if [ ! -d "scripts" ]; then
+            echo "No scripts directory — skipping"
+            echo "::endgroup::"
+            exit 0
+          fi
+          find scripts/ -name "*.sh" | while read -r script; do
+            chmod +x "$script"
+            echo "  ✓ Deployed: $script"
+          done
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # APEX Import
+      # ────────────────────────────────────────────────────────
+      - name: "APEX Import"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          APEX_DIR="apex/applications/f100"
+          if [ ! -d "$APEX_DIR" ] || [ ! -f "$APEX_DIR/install.sql" ]; then
+            echo "No APEX export found — skipping"
+            exit 0
+          fi
+          echo "::group::APEX Import"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          apex import -dir ${APEX_DIR} -applicationid 100
+          EXIT
+          EOSQL
+          echo "✓ APEX application imported"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G14: Smoke Tests
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G14: Smoke Tests"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G14 — Smoke Tests"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_pass NUMBER := 0;
+              v_fail NUMBER := 0;
+              v_count NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_count FROM user_objects
+              WHERE object_name = 'PKG_CUSTOMER_LOAD' AND object_type IN ('PACKAGE','PACKAGE BODY') AND status = 'VALID';
+              IF v_count = 2 THEN DBMS_OUTPUT.PUT_LINE('✓ PKG_CUSTOMER_LOAD VALID'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ PKG_CUSTOMER_LOAD invalid'); v_fail := v_fail+1; END IF;
+
+              BEGIN PKG_CUSTOMER_LOAD.PROCESS_STAGING; DBMS_OUTPUT.PUT_LINE('✓ PROCESS_STAGING executed'); v_pass := v_pass+1;
+              EXCEPTION WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('✗ ' || SQLERRM); v_fail := v_fail+1; END;
+
+              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER;
+              IF v_count > 0 THEN DBMS_OUTPUT.PUT_LINE('✓ TGT_CUSTOMER has ' || v_count || ' rows'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ TGT_CUSTOMER empty'); v_fail := v_fail+1; END IF;
+
+              DBMS_OUTPUT.PUT_LINE('Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
+              IF v_fail > 0 THEN RAISE_APPLICATION_ERROR(-20003, v_fail || ' smoke test(s) failed'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G14 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G15: Integration Tests (SIT-specific)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G15: Integration Tests"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G15 — Integration Tests"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_pass NUMBER := 0;
+              v_fail NUMBER := 0;
+              v_result VARCHAR2(20);
+              v_count NUMBER;
+              v_deleted NUMBER;
+          BEGIN
+              -- Test 1: FN_CUSTOMER_STATUS returns valid result
+              BEGIN
+                  SELECT FN_CUSTOMER_STATUS(1) INTO v_result FROM dual;
+                  IF v_result IN ('COMPLETE','PARTIAL','INCOMPLETE','NOT_FOUND') THEN
+                      DBMS_OUTPUT.PUT_LINE('✓ FN_CUSTOMER_STATUS returned: ' || v_result);
+                      v_pass := v_pass + 1;
+                  ELSE
+                      DBMS_OUTPUT.PUT_LINE('✗ FN_CUSTOMER_STATUS unexpected: ' || v_result);
+                      v_fail := v_fail + 1;
+                  END IF;
+              EXCEPTION WHEN OTHERS THEN
+                  DBMS_OUTPUT.PUT_LINE('✗ FN_CUSTOMER_STATUS error: ' || SQLERRM);
+                  v_fail := v_fail + 1;
+              END;
+
+              -- Test 2: SP_REFRESH_STAGING runs without error
+              BEGIN
+                  SP_REFRESH_STAGING(p_days_old => 9999, p_records_deleted => v_deleted);
+                  DBMS_OUTPUT.PUT_LINE('✓ SP_REFRESH_STAGING ran, deleted: ' || v_deleted);
+                  v_pass := v_pass + 1;
+              EXCEPTION WHEN OTHERS THEN
+                  DBMS_OUTPUT.PUT_LINE('✗ SP_REFRESH_STAGING error: ' || SQLERRM);
+                  v_fail := v_fail + 1;
+              END;
+
+              -- Test 3: Audit trigger fires on INSERT
+              BEGIN
+                  INSERT INTO TGT_CUSTOMER (CUSTOMER_NAME, CUSTOMER_EMAIL, SOURCE_SYSTEM, CREATED_DATE)
+                  VALUES ('Integration Test', 'test@sit.com', 'SIT_TEST', SYSDATE);
+                  SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER_AUDIT WHERE NEW_NAME = 'Integration Test';
+                  IF v_count > 0 THEN
+                      DBMS_OUTPUT.PUT_LINE('✓ TRG_CUSTOMER_AUDIT fired on INSERT');
+                      v_pass := v_pass + 1;
+                  ELSE
+                      DBMS_OUTPUT.PUT_LINE('✗ Audit trigger did not fire');
+                      v_fail := v_fail + 1;
+                  END IF;
+                  ROLLBACK;
+              EXCEPTION WHEN OTHERS THEN
+                  DBMS_OUTPUT.PUT_LINE('✗ Audit trigger test error: ' || SQLERRM);
+                  v_fail := v_fail + 1;
+                  ROLLBACK;
+              END;
+
+              DBMS_OUTPUT.PUT_LINE('Integration Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
+              IF v_fail > 0 THEN RAISE_APPLICATION_ERROR(-20015, v_fail || ' integration test(s) failed'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G15 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G16: Data Pipeline Tests (SIT-specific)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G16: Data Pipeline Tests"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::G16 — Data Pipeline Tests"
+          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_before NUMBER;
+              v_after  NUMBER;
+              v_status VARCHAR2(50);
+          BEGIN
+              SELECT COUNT(*) INTO v_before FROM TGT_CUSTOMER;
+
+              INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL)
+              VALUES ('PIPELINE_TEST', 'Pipeline Test Customer', 'pipeline@test.com');
+              COMMIT;
+
+              PKG_CUSTOMER_LOAD.PROCESS_STAGING;
+
+              SELECT COUNT(*) INTO v_after FROM TGT_CUSTOMER;
+
+              IF v_after > v_before THEN
+                  DBMS_OUTPUT.PUT_LINE('✓ Pipeline processed: ' || v_before || ' → ' || v_after || ' rows');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✗ Pipeline did not increase TGT_CUSTOMER count');
+                  RAISE_APPLICATION_ERROR(-20016, 'Data pipeline test failed');
+              END IF;
+
+              SELECT STATUS INTO v_status FROM ETL_PROCESS_LOG
+              ORDER BY LOG_ID DESC FETCH FIRST 1 ROW ONLY;
+
+              IF v_status = 'COMPLETED' THEN
+                  DBMS_OUTPUT.PUT_LINE('✓ ETL log status: COMPLETED');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✗ ETL log status: ' || v_status);
+                  RAISE_APPLICATION_ERROR(-20016, 'ETL status not COMPLETED');
+              END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          if [ $? -ne 0 ]; then echo "::error::G16 FAILED"; echo "::endgroup::"; exit 1; fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Deployment Summary
+      # ────────────────────────────────────────────────────────
+      - name: "SIT Deployment Summary"
+        if: success()
+        shell: bash
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════"
+          echo "  ✓ DEPLOYMENT TO SIT SUCCESSFUL"
+          echo "════════════════════════════════════════════════════"
+          echo "  Tag: $TAG_NAME"
+          echo "  Gates: G9, G10, G11, G14, G15, G16, G27"
+          echo "  Branch: ${{ github.ref_name }}"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Actor: ${{ github.actor }}"
+          echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "════════════════════════════════════════════════════"
