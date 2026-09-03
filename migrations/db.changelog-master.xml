@@ -5,6 +5,12 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <include file="releases/v1.1/001-add-customer-phone.xml" relativeToChangelogFile="true"/>
+    <!-- Release v1.1.0 — Schema Changes -->
+    <include file="releases/v1.1.0/001-add-customer-phone.xml" relativeToChangelogFile="true"/>
+
+    <!-- Release v1.2 — PL/SQL Objects: Function, Procedure, Trigger -->
+    <include file="releases/v1.2/001-create-fn-customer-status.xml" relativeToChangelogFile="true"/>
+    <include file="releases/v1.2/002-create-sp-refresh-staging.xml" relativeToChangelogFile="true"/>
+    <include file="releases/v1.2/003-create-trg-customer-audit.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>
