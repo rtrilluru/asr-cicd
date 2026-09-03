@@ -1,0 +1,7 @@
+SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE
+FLATFILE,Alpha Technologies,alpha@alphatech.com,+1-555-0201
+FLATFILE,Beta Solutions,info@betasol.com,+1-555-0202
+FLATFILE,Gamma Analytics,contact@gamma.io,+1-555-0203
+FLATFILE,Delta Systems,hello@deltasys.com,+1-555-0204
+FLATFILE,Epsilon Corp,sales@epsilon.com,+1-555-0205
+# SIT promotion test

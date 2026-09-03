@@ -1,10 +1,29 @@
+# ============================================================
+# ASR CI/CD PIPELINE — CI: Pull Request Validation
+# ============================================================
+# Triggers: On every Pull Request to develop, sit, uat, master
+# Runs on: Self-hosted runner (your laptop)
+# Gates: G1 (SQL Lint), G3 (Naming), G4 (Rollback), G5 (Security),
+#         G6 (Syntax via SQLcl), G8 (Dependency Order)
+# ============================================================
+
 name: CI — PR Validation
 
 on:
   pull_request:
     branches:
       - develop
-      - main
+      - sit
+      - uat
+      - master
+    paths:
+      - 'migrations/**'
+      - 'rollbacks/**'
+      - 'packages/**'
+      - 'schema/**'
+      - 'scripts/**'
+      - 'data/**'
+      - 'apex/**'
 
 jobs:
   validate:
@@ -12,9 +31,64 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      # ────────────────────────────────────────────────────────
+      # Checkout code
+      # ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ────────────────────────────────────────────────────────
+      # G2: Shell Script Validation
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G2: Shell Script Validation"
+        shell: bash
+        run: |
+          echo "::group::G2 — Shell Script Validation"
+          ERRORS=0
+          SCRIPTS=$(find scripts/ -name "*.sh" 2>/dev/null)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found — skipping"
+          else
+            while IFS= read -r f; do
+              echo "Checking: $f"
+
+              # Check 1: Shebang line
+              FIRST_LINE=$(head -1 "$f")
+              if [[ "$FIRST_LINE" != "#!/bin/bash"* && "$FIRST_LINE" != "#!/bin/sh"* ]]; then
+                echo "::error file=$f::Missing shebang (#!/bin/bash) on first line"
+                ERRORS=$((ERRORS+1))
+              else
+                echo "  ✓ Shebang present"
+              fi
+
+              # Check 2: No hardcoded credentials
+              if grep -qiE "(password|secret|token)\s*=\s*['\"][^'\"]+['\"]" "$f"; then
+                echo "::error file=$f::Hardcoded credentials detected"
+                ERRORS=$((ERRORS+1))
+              else
+                echo "  ✓ No hardcoded credentials"
+              fi
+
+              # Check 3: Naming convention (lowercase, underscores)
+              BASENAME=$(basename "$f")
+              if [[ ! "$BASENAME" =~ ^[a-z][a-z0-9_]*\.sh$ ]]; then
+                echo "::error file=$f::Naming violation: use lowercase with underscores (e.g., load_customers.sh)"
+                ERRORS=$((ERRORS+1))
+              else
+                echo "  ✓ Naming convention OK"
+              fi
+
+            done <<< "$SCRIPTS"
+          fi
+          echo "::endgroup::"
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::G2 FAILED: $ERRORS shell script issue(s)"
+            exit 1
+          fi
+
+      # ────────────────────────────────────────────────────────
+      # G3: Migration Naming Convention
+      # ────────────────────────────────────────────────────────
       - name: "Gate G3: Migration Naming Validation"
         shell: bash
         run: |
@@ -27,7 +101,7 @@ jobs:
             while IFS= read -r f; do
               filename=$(basename "$f")
               if [[ ! "$filename" =~ ^[0-9]{3}- ]]; then
-                echo "::error file=$f::Naming violation: must match NNN-description"
+                echo "::error file=$f::Naming violation: must match pattern NNN-description (e.g., 001-add-column.xml)"
                 ERRORS=$((ERRORS+1))
               else
                 echo "✓ $f"
@@ -35,8 +109,14 @@ jobs:
             done <<< "$FILES"
           fi
           echo "::endgroup::"
-          if [ $ERRORS -gt 0 ]; then exit 1; fi
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::G3 FAILED: $ERRORS file(s) with naming violations"
+            exit 1
+          fi
 
+      # ────────────────────────────────────────────────────────
+      # G4: Rollback Existence Check
+      # ────────────────────────────────────────────────────────
       - name: "Gate G4: Rollback Defined in ChangeSets"
         shell: bash
         run: |
@@ -51,28 +131,70 @@ jobs:
                 if grep -q "<rollback>" "$f" || grep -q "rollback>" "$f"; then
                   echo "✓ $f — rollback defined"
                 else
-                  echo "::error file=$f::No <rollback> tag found"
+                  echo "::error file=$f::No <rollback> tag found in changeSet"
                   ERRORS=$((ERRORS+1))
                 fi
               fi
             done <<< "$XML_FILES"
           fi
           echo "::endgroup::"
-          if [ $ERRORS -gt 0 ]; then exit 1; fi
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::G4 FAILED: $ERRORS file(s) missing rollback definitions"
+            exit 1
+          fi
 
+      # ────────────────────────────────────────────────────────
+      # G5: Security Scanning (credentials in code)
+      # ────────────────────────────────────────────────────────
       - name: "Gate G5: Security Scan"
         shell: bash
         run: |
+          echo "::group::G5 — Security Scanning"
           SECRETS=$(grep -riE "(password|secret|api_key|token)\s*[:=]\s*['\"][^'\"]+['\"]" \
             migrations/ rollbacks/ packages/ scripts/ \
             --include="*.sql" --include="*.xml" --include="*.sh" -l 2>/dev/null || true)
           if [ -z "$SECRETS" ]; then
             echo "✓ No hardcoded credentials detected"
           else
-            echo "::error::Potential credentials found in: $SECRETS"
+            echo "::error::Potential credentials found in:"
+            echo "$SECRETS"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G8: Dependency Order (changelog references exist)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G8: Dependency Order Validation"
+        shell: bash
+        run: |
+          echo "::group::G8 — Dependency Order"
+          MASTER="migrations/db.changelog-master.xml"
+          if [ ! -f "$MASTER" ]; then
+            echo "::error::Master changelog not found: $MASTER"
+            exit 1
+          fi
+          ERRORS=0
+          INCLUDES=$(grep -oP 'file="[^"]*"' "$MASTER" | sed 's/file="//;s/"//')
+          for inc in $INCLUDES; do
+            full_path="migrations/$inc"
+            if [ -f "$full_path" ]; then
+              echo "✓ $inc exists"
+            else
+              echo "::error file=$MASTER::Referenced file not found: $inc"
+              ERRORS=$((ERRORS+1))
+            fi
+          done
+          echo "::endgroup::"
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::G8 FAILED: $ERRORS referenced file(s) missing"
             exit 1
           fi
 
+      # ────────────────────────────────────────────────────────
+      # G6: Syntax Validation via SQLcl
+      # ────────────────────────────────────────────────────────
       - name: "Gate G6: SQL Syntax Validation (SQLcl)"
         shell: bash
         env:
@@ -80,23 +202,83 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          export PATH=/opt/sqlcl/bin:$PATH
+          echo "::group::G6 — SQL Syntax Validation"
+          echo "Validating changelog syntax via SQLcl Liquibase..."
+
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'SQLEOF'
+          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET ECHO OFF
+          SET FEEDBACK OFF
           liquibase validate -changelog-file db.changelog-master.xml
           EXIT
-          SQLEOF
+          EOSQL
+
           if [ $? -ne 0 ]; then
-            echo "::error::G6 FAILED: Changelog validation errors"
+            echo "::error::G6 FAILED: Changelog validation errors detected"
+            echo "::endgroup::"
             exit 1
           fi
           echo "✓ Changelog syntax is valid"
+          echo "::endgroup::"
 
-      - name: "CI Summary"
+      # ────────────────────────────────────────────────────────
+      # G26: APEX Export Integrity (if APEX files changed)
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G26: APEX Export Integrity"
+        shell: bash
+        run: |
+          echo "::group::G26 — APEX Export Integrity"
+          APEX_DIR="apex/applications/f100"
+          if [ ! -d "$APEX_DIR" ]; then
+            echo "No APEX export found — skipping"
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          ERRORS=0
+
+          # Check install.sql exists
+          if [ -f "$APEX_DIR/install.sql" ]; then
+            echo "✓ install.sql exists"
+          else
+            echo "::error::install.sql missing in $APEX_DIR"
+            ERRORS=$((ERRORS+1))
+          fi
+
+          # Check for hardcoded environment URLs
+          ENV_URLS=$(grep -riE "https?://(dev|sit|uat|prod)" "$APEX_DIR" -l 2>/dev/null || true)
+          if [ -z "$ENV_URLS" ]; then
+            echo "✓ No hardcoded environment URLs"
+          else
+            echo "::error::Environment-specific URLs found in: $ENV_URLS"
+            ERRORS=$((ERRORS+1))
+          fi
+
+          # Check for credentials in APEX export
+          CREDS=$(grep -riE "(password|secret|token)\s*[:=]" "$APEX_DIR" -l 2>/dev/null || true)
+          if [ -z "$CREDS" ]; then
+            echo "✓ No credentials in APEX export"
+          else
+            echo "::error::Credentials found in APEX export: $CREDS"
+            ERRORS=$((ERRORS+1))
+          fi
+
+          echo "::endgroup::"
+          if [ $ERRORS -gt 0 ]; then
+            exit 1
+          fi
+
+      # ────────────────────────────────────────────────────────
+      # Summary
+      # ────────────────────────────────────────────────────────
+      - name: "CI Validation Summary"
         if: always()
         shell: bash
         run: |
-          echo "════════════════════════════════════════"
+          echo ""
+          echo "════════════════════════════════════════════════════"
           echo "  CI VALIDATION COMPLETE"
-          echo "  Gates: G3, G4, G5, G6"
-          echo "════════════════════════════════════════"
+          echo "════════════════════════════════════════════════════"
+          echo "  Gates executed: G2, G3, G4, G5, G6, G8, G26"
+          echo "  Result: Check step statuses above"
+          echo "════════════════════════════════════════════════════"

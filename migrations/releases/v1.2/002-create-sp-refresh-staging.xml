@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="create-sp-refresh-staging" author="rtrilluru">
+        <comment>Procedure to clean up old processed staging records</comment>
+        <createProcedure dbms="oracle" endDelimiter="/">
+CREATE OR REPLACE PROCEDURE SP_REFRESH_STAGING(
+    p_days_old       IN NUMBER DEFAULT 30,
+    p_records_deleted OUT NUMBER
+)
+IS
+    v_start_time TIMESTAMP := SYSTIMESTAMP;
+BEGIN
+    DELETE FROM STG_CUSTOMER
+    WHERE PROCESS_FLAG = 'Y'
+      AND LOAD_DATE < SYSDATE - p_days_old;
+
+    p_records_deleted := SQL%ROWCOUNT;
+    COMMIT;
+
+    INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+    VALUES ('REFRESH_STAGING', v_start_time, SYSTIMESTAMP, p_records_deleted, 'COMPLETED');
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS, ERROR_MESSAGE)
+        VALUES ('REFRESH_STAGING', v_start_time, SYSTIMESTAMP, 0, 'FAILED', SQLERRM);
+        COMMIT;
+        RAISE;
+END SP_REFRESH_STAGING;
+/
+        </createProcedure>
+        <rollback>
+            <sql>DROP PROCEDURE SP_REFRESH_STAGING</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

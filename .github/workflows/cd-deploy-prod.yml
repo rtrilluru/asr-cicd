@@ -1,7 +1,11 @@
 # ============================================================
 # ASR CI/CD PIPELINE — CD: Deploy to PROD
 # ============================================================
+<<<<<<< HEAD
 # Triggers: Manual (workflow_dispatch) — select release branch
+=======
+# Triggers: On push to 'master' branch (after merge from uat)
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
 # Runs on: Self-hosted runner
 # Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
 #         G14 (Smoke Tests), G21 (Backup), G22 (Deploy Window),
@@ -12,12 +16,26 @@
 name: CD — Deploy to PROD
 
 on:
+<<<<<<< HEAD
   workflow_dispatch:
     inputs:
       confirm:
         description: 'Type DEPLOY-PROD to confirm deployment'
         required: true
         type: string
+=======
+  push:
+    branches:
+      - master
+    paths:
+      - 'migrations/**'
+      - 'rollbacks/**'
+      - 'packages/**'
+      - 'schema/**'
+      - 'scripts/**'
+      - 'data/**'
+      - 'apex/**'
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
 
 concurrency:
   group: deploy-prod
@@ -30,6 +48,7 @@ jobs:
     environment: DB-PROD
 
     steps:
+<<<<<<< HEAD
       - name: "Validate Confirmation"
         shell: bash
         run: |
@@ -40,6 +59,8 @@ jobs:
           echo "✓ Deployment confirmed"
           echo "Branch: ${{ github.ref_name }}"
 
+=======
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -87,7 +108,11 @@ jobs:
               -- Check 3: No invalid objects before deploy
               SELECT COUNT(*) INTO v_count FROM user_objects WHERE status != 'VALID';
               IF v_count > 0 THEN
+<<<<<<< HEAD
                   DBMS_OUTPUT.PUT_LINE('⚠ WARNING: ' || v_count || ' invalid objects before deployment');
+=======
+                  DBMS_OUTPUT.PUT_LINE('WARNING: ' || v_count || ' invalid objects before deployment');
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
               ELSE
                   DBMS_OUTPUT.PUT_LINE('✓ All objects VALID before deployment');
               END IF;
@@ -149,12 +174,20 @@ jobs:
                   DBMS_OUTPUT.PUT_LINE('✓ Backup tag verified: ' || v_tag);
                   DBMS_OUTPUT.PUT_LINE('  Created: ' || TO_CHAR(v_date, 'YYYY-MM-DD HH24:MI:SS'));
               ELSE
+<<<<<<< HEAD
                   DBMS_OUTPUT.PUT_LINE('⚠ WARNING: Latest tag is older than 10 minutes');
+=======
+                  DBMS_OUTPUT.PUT_LINE('WARNING: Latest tag is older than 10 minutes');
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
                   DBMS_OUTPUT.PUT_LINE('  Tag: ' || v_tag || ' at ' || TO_CHAR(v_date, 'YYYY-MM-DD HH24:MI:SS'));
               END IF;
           EXCEPTION
               WHEN NO_DATA_FOUND THEN
+<<<<<<< HEAD
                   DBMS_OUTPUT.PUT_LINE('⚠ WARNING: No Liquibase tags found');
+=======
+                  DBMS_OUTPUT.PUT_LINE('WARNING: No Liquibase tags found');
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
           END;
           /
           EXIT
@@ -370,7 +403,11 @@ jobs:
               DBMS_OUTPUT.PUT_LINE('PROCESS_STAGING elapsed: ' || ROUND(v_elapsed, 3) || ' seconds');
 
               IF v_elapsed > 5 THEN
+<<<<<<< HEAD
                   DBMS_OUTPUT.PUT_LINE('⚠ WARNING: Execution exceeded 5s threshold');
+=======
+                  DBMS_OUTPUT.PUT_LINE('WARNING: Execution exceeded 5s threshold');
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
               ELSE
                   DBMS_OUTPUT.PUT_LINE('✓ Performance within acceptable range');
               END IF;
@@ -419,7 +456,10 @@ jobs:
           echo "║  Health Check: Passed"
           echo "║  Backup: Verified"
           echo "║  Performance: Baselined"
+<<<<<<< HEAD
           echo "║  Branch: ${{ github.ref_name }}"
+=======
+>>>>>>> 69a725e3f252ccd50fc1d498bf5bd7a747f23b3d
           echo "║  Commit: ${{ github.sha }}"
           echo "║  Actor: ${{ github.actor }}"
           echo "║  Time: $(date '+%Y-%m-%d %H:%M:%S')"
