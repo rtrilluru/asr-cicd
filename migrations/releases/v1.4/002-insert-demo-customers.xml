@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.4-002-insert-demo-customers" author="asr_deploy">
+        <comment>Insert demo customers into staging and process through ETL</comment>
+
+        <sql>
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('PORTAL', 'Acme Corporation', 'info@acmecorp.com', '+1-555-0301');
+
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('PORTAL', 'Wayne Enterprises', 'bruce@wayne.com', '+1-555-0302');
+
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('PORTAL', 'Stark Industries', 'tony@stark.com', '+1-555-0303');
+
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('PORTAL', 'Umbrella Corp', 'contact@umbrella.com', '+1-555-0304');
+        </sql>
+
+        <sql>
+            BEGIN
+                PKG_CUSTOMER_LOAD.PROCESS_STAGING;
+            END;
+        </sql>
+
+        <rollback>
+            <sql>
+                DELETE FROM TGT_CUSTOMER WHERE CUSTOMER_EMAIL IN
+                ('info@acmecorp.com','bruce@wayne.com','tony@stark.com','contact@umbrella.com');
+                DELETE FROM STG_CUSTOMER WHERE CUSTOMER_EMAIL IN
+                ('info@acmecorp.com','bruce@wayne.com','tony@stark.com','contact@umbrella.com');
+                COMMIT;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

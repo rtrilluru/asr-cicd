@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.4-001-create-vw-customer-summary" author="asr_deploy">
+        <comment>Create customer summary view for APEX Customer Portal</comment>
+        <createView viewName="VW_CUSTOMER_SUMMARY" replaceIfExists="true">
+            SELECT
+                c.CUSTOMER_ID,
+                c.CUSTOMER_NAME,
+                c.CUSTOMER_EMAIL,
+                c.CUSTOMER_PHONE,
+                c.SOURCE_SYSTEM,
+                c.LOAD_DATE,
+                FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS DATA_STATUS,
+                (SELECT COUNT(*) FROM CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
+            FROM TGT_CUSTOMER c
+        </createView>
+        <rollback>
+            <dropView viewName="VW_CUSTOMER_SUMMARY"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
