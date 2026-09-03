@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="insert-demo-customers-v1.4" author="rtrilluru">
+        <comment>Load demo customers into staging and process through ETL</comment>
+        <sql>
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('CRM', 'Acme Corporation', 'info@acme.com', '+1-555-0301');
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('CRM', 'Wayne Enterprises', 'bruce@wayne.com', '+1-555-0302');
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE)
+            VALUES ('SALESFORCE', 'Stark Industries', 'tony@stark.com', '+1-555-0303');
+            INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL)
+            VALUES ('WEB', 'Umbrella Corp', 'contact@umbrella.com');
+            COMMIT;
+        </sql>
+        <rollback>
+            <sql>
+                DELETE FROM STG_CUSTOMER WHERE CUSTOMER_NAME IN
+                ('Acme Corporation','Wayne Enterprises','Stark Industries','Umbrella Corp');
+                COMMIT;
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="process-staging-v1.4" author="rtrilluru">
+        <comment>Run ETL to move staging data into target</comment>
+        <sql endDelimiter="/">
+            BEGIN
+                PKG_CUSTOMER_LOAD.PROCESS_STAGING;
+            END;
+            /
+        </sql>
+        <rollback/>
+    </changeSet>
+
+</databaseChangeLog>
