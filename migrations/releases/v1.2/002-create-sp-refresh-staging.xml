@@ -7,7 +7,7 @@
 
     <changeSet id="create-sp-refresh-staging" author="rtrilluru">
         <comment>Procedure to clean up old processed staging records</comment>
-        <createProcedure dbms="oracle" endDelimiter="/">
+        <createProcedure dbms="oracle"><![CDATA[
 CREATE OR REPLACE PROCEDURE SP_REFRESH_STAGING(
     p_days_old       IN NUMBER DEFAULT 30,
     p_records_deleted OUT NUMBER
@@ -29,13 +29,13 @@ BEGIN
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK;
-        INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS, ERROR_MESSAGE)
-        VALUES ('REFRESH_STAGING', v_start_time, SYSTIMESTAMP, 0, 'FAILED', SQLERRM);
+        INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+        VALUES ('REFRESH_STAGING', v_start_time, SYSTIMESTAMP, 0, 'FAILED');
         COMMIT;
         RAISE;
 END SP_REFRESH_STAGING;
 /
-        </createProcedure>
+        ]]></createProcedure>
         <rollback>
             <sql>DROP PROCEDURE SP_REFRESH_STAGING</sql>
         </rollback>

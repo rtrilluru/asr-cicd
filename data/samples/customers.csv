@@ -4,7 +4,7 @@ FLATFILE,Beta Solutions,info@betasol.com,+1-555-0202
 FLATFILE,Gamma Analytics,contact@gamma.io,+1-555-0203
 FLATFILE,Delta Systems,hello@deltasys.com,+1-555-0204
 FLATFILE,Epsilon Corp,sales@epsilon.com,+1-555-0205
-CRM,Acme Corporation,info@acme.com,+1-555-0301
-CRM,Wayne Enterprises,bruce@wayne.com,+1-555-0302
-SALESFORCE,Stark Industries,tony@stark.com,+1-555-0303
-WEB,Umbrella Corp,contact@umbrella.com,
+FLATFILE,Acme Corporation,info@acmecorp.com,+1-555-0301
+FLATFILE,Wayne Enterprises,bruce@wayne.com,+1-555-0302
+FLATFILE,Stark Industries,tony@stark.com,+1-555-0303
+FLATFILE,Umbrella Corp,contact@umbrella.com,+1-555-0304
