@@ -176,16 +176,23 @@ jobs:
             exit 1
           fi
           ERRORS=0
-          INCLUDES=$(grep -oP 'file="[^"]*"' "$MASTER" | sed 's/file="//;s/"//')
-          for inc in $INCLUDES; do
-            full_path="migrations/$inc"
-            if [ -f "$full_path" ]; then
-              echo "✓ $inc exists"
-            else
-              echo "::error file=$MASTER::Referenced file not found: $inc"
-              ERRORS=$((ERRORS+1))
-            fi
-          done
+          if grep -q 'includeAll' "$MASTER"; then
+            RELEASE_DIR="migrations/releases"
+            if [ ! -d "$RELEASE_DIR" ]; then echo "::error::releases/ directory not found"; exit 1; fi
+            COUNT=$(find "$RELEASE_DIR" -name "*.xml" | wc -l)
+            echo "✓ includeAll mode — $COUNT migration files found in releases/"
+          else
+            INCLUDES=$(grep -oP 'file="[^"]*"' "$MASTER" | sed 's/file="//;s/"//')
+            for inc in $INCLUDES; do
+              full_path="migrations/$inc"
+              if [ -f "$full_path" ]; then
+                echo "✓ $inc exists"
+              else
+                echo "::error file=$MASTER::Referenced file not found: $inc"
+                ERRORS=$((ERRORS+1))
+              fi
+            done
+          fi
           echo "::endgroup::"
           if [ $ERRORS -gt 0 ]; then
             echo "::error::G8 FAILED: $ERRORS referenced file(s) missing"
