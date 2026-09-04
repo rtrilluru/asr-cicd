@@ -16,7 +16,7 @@
                 c.SOURCE_SYSTEM,
                 c.LOAD_DATE,
                 FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS DATA_STATUS,
-                (SELECT COUNT(*) FROM CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
+                (SELECT COUNT(*) FROM TGT_CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
             FROM TGT_CUSTOMER c
         </createView>
         <rollback>
