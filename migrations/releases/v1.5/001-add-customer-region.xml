@@ -6,7 +6,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="v1.5-001-add-customer-region" author="rtrilluru">
-        <comment>Add REGION column to TGT_CUSTOMER for geographic tracking</comment>
+        <comment>Add REGION column to TGT_CUSTOMER for geographic segmentation</comment>
         <addColumn tableName="TGT_CUSTOMER">
             <column name="REGION" type="VARCHAR2(50)"/>
         </addColumn>
