@@ -7,11 +7,11 @@
 
     <changeSet id="v1.5-001-add-customer-region" author="rtrilluru">
         <comment>Add REGION column to TGT_CUSTOMER for geographic segmentation</comment>
-        <addColumn tableName="TGT_CUSTOMER">
+        <addColumn tableName="TGT_CUSTOMER" schemaName="ASR_OWNER">
             <column name="REGION" type="VARCHAR2(50)"/>
         </addColumn>
         <rollback>
-            <dropColumn tableName="TGT_CUSTOMER" columnName="REGION"/>
+            <dropColumn tableName="TGT_CUSTOMER" schemaName="ASR_OWNER" columnName="REGION"/>
         </rollback>
     </changeSet>
 
