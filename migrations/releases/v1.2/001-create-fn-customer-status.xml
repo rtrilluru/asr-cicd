@@ -7,7 +7,7 @@
 
     <changeSet id="create-fn-customer-status" author="rtrilluru">
         <comment>Function to check customer data completeness</comment>
-        <createProcedure dbms="oracle" endDelimiter="/">
+        <createProcedure dbms="oracle">
 CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
 RETURN VARCHAR2
 IS

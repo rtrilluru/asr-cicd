@@ -29,7 +29,7 @@
     <!-- ChangeSet 2: Create the audit trigger -->
     <changeSet id="create-trg-customer-audit" author="rtrilluru">
         <comment>Trigger to capture INSERT/UPDATE/DELETE on TGT_CUSTOMER</comment>
-        <createProcedure dbms="oracle" endDelimiter="/">
+        <createProcedure dbms="oracle">
 CREATE OR REPLACE TRIGGER TRG_CUSTOMER_AUDIT
 AFTER INSERT OR UPDATE OR DELETE ON TGT_CUSTOMER
 FOR EACH ROW

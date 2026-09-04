@@ -7,7 +7,7 @@
 
     <changeSet id="create-sp-refresh-staging" author="rtrilluru">
         <comment>Procedure to clean up old processed staging records</comment>
-        <createProcedure dbms="oracle" endDelimiter="/">
+        <createProcedure dbms="oracle">
 CREATE OR REPLACE PROCEDURE SP_REFRESH_STAGING(
     p_days_old       IN NUMBER DEFAULT 30,
     p_records_deleted OUT NUMBER
