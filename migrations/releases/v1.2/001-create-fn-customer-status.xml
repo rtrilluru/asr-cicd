@@ -7,7 +7,7 @@
 
     <changeSet id="create-fn-customer-status" author="rtrilluru">
         <comment>Function to check customer data completeness</comment>
-        <createProcedure dbms="oracle">
+        <createProcedure dbms="oracle"><![CDATA[
 CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
 RETURN VARCHAR2
 IS
@@ -37,7 +37,7 @@ EXCEPTION
         RETURN 'NOT_FOUND';
 END FN_CUSTOMER_STATUS;
 /
-        </createProcedure>
+        ]]></createProcedure>
         <rollback>
             <sql>DROP FUNCTION FN_CUSTOMER_STATUS</sql>
         </rollback>
