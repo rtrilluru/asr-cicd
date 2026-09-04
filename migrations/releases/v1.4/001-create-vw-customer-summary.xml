@@ -14,7 +14,7 @@
                 c.CUSTOMER_EMAIL,
                 c.CUSTOMER_PHONE,
                 c.SOURCE_SYSTEM,
-                c.LOAD_DATE,
+                c.CREATED_DATE,
                 FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS DATA_STATUS,
                 (SELECT COUNT(*) FROM TGT_CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
             FROM TGT_CUSTOMER c
