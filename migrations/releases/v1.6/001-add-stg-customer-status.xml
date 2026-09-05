@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.6-001-add-stg-customer-status" author="rtrilluru">
+        <comment>Add STATUS column to STG_CUSTOMER for tracking active/inactive customers</comment>
+        <addColumn tableName="STG_CUSTOMER" schemaName="ASR_OWNER">
+            <column name="CUSTOMER_STATUS" type="VARCHAR2(20)" defaultValue="ACTIVE"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="STG_CUSTOMER" schemaName="ASR_OWNER" columnName="CUSTOMER_STATUS"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
