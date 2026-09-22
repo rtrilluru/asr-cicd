@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.7-002-add-tgt-customer-category" author="rtrilluru">
+        <comment>Add CUSTOMER_CATEGORY to target table for customer tier tracking</comment>
+        <addColumn tableName="TGT_CUSTOMER" schemaName="ASR_OWNER">
+            <column name="CUSTOMER_CATEGORY" type="VARCHAR2(20)" defaultValue="BRONZE"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="TGT_CUSTOMER" schemaName="ASR_OWNER" columnName="CUSTOMER_CATEGORY"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
