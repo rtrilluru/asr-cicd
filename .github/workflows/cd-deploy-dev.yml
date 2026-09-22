@@ -57,7 +57,7 @@ jobs:
 
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          liquibase tag -tag $TAG_NAME
+          lb tag -tag $TAG_NAME
           EXIT
           EOSQL
 
@@ -78,7 +78,7 @@ jobs:
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET ECHO OFF
-          liquibase update-sql -changelog-file db.changelog-master.xml
+          lb update-sql -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
 
@@ -104,7 +104,7 @@ jobs:
           echo "::group::G10 — Execute Migration"
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          liquibase update -changelog-file db.changelog-master.xml
+          lb update -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
 
@@ -132,7 +132,7 @@ jobs:
           echo "::warning::DEPLOYMENT FAILED — Executing auto-rollback to tag: $TAG_NAME"
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
           echo "✓ Rollback complete — database restored to pre-deployment state"

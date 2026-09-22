@@ -57,7 +57,7 @@ jobs:
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          liquibase tag -tag $TAG_NAME
+          lb tag -tag $TAG_NAME
           EXIT
           EOSQL
           echo "✓ Database tagged as: $TAG_NAME"
@@ -77,7 +77,7 @@ jobs:
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET ECHO OFF
-          liquibase update-sql -changelog-file db.changelog-master.xml
+          lb update-sql -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
           if [ $? -ne 0 ]; then
@@ -102,7 +102,7 @@ jobs:
           echo "::group::G10 — Execute Migration"
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          liquibase update -changelog-file db.changelog-master.xml
+          lb update -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
           if [ $? -ne 0 ]; then
@@ -129,7 +129,7 @@ jobs:
           echo "::warning::DEPLOYMENT FAILED — Rolling back to: $TAG_NAME"
           cd migrations
           sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          liquibase rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
+          lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
           echo "✓ Rollback complete"
