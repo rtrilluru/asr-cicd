@@ -381,12 +381,19 @@ jobs:
 
           {
             echo "SET SERVEROUTPUT ON"
-            tail -n +2 "$CSV_FILE" | while IFS=',' read -r sys name email phone; do
-              sys=$(echo "$sys" | xargs)
-              name=$(echo "$name" | xargs)
-              email=$(echo "$email" | xargs)
-              phone=$(echo "$phone" | xargs)
-              echo "INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE) VALUES ('${sys}', '${name}', '${email}', '${phone}');"
+            HEADER=$(head -1 "$CSV_FILE" | xargs)
+            tail -n +2 "$CSV_FILE" | while IFS= read -r line; do
+              IFS=',' read -ra FIELDS <<< "$line"
+              VALUES=""
+              for field in "${FIELDS[@]}"; do
+                val=$(echo "$field" | xargs)
+                if [ -z "$VALUES" ]; then
+                  VALUES="'${val}'"
+                else
+                  VALUES="${VALUES}, '${val}'"
+                fi
+              done
+              echo "INSERT INTO STG_CUSTOMER (${HEADER}) VALUES (${VALUES});"
             done
             echo "COMMIT;"
             echo "BEGIN"
