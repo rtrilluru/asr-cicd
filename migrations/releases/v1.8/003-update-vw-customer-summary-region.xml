@@ -5,7 +5,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="update-vw-customer-summary-region" author="asr-team" labels="v1.8">
-        <createOrReplaceView schemaName="ASR_OWNER" viewName="VW_CUSTOMER_SUMMARY">
+        <createView viewName="VW_CUSTOMER_SUMMARY" schemaName="ASR_OWNER" replaceIfExists="true">
             SELECT c.CUSTOMER_ID,
                    c.CUSTOMER_NAME,
                    c.CUSTOMER_EMAIL,
@@ -17,9 +17,9 @@
                    c.CUSTOMER_REGION,
                    FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS
             FROM TGT_CUSTOMER c
-        </createOrReplaceView>
+        </createView>
         <rollback>
-            <createOrReplaceView schemaName="ASR_OWNER" viewName="VW_CUSTOMER_SUMMARY">
+            <createView viewName="VW_CUSTOMER_SUMMARY" schemaName="ASR_OWNER" replaceIfExists="true">
                 SELECT c.CUSTOMER_ID,
                        c.CUSTOMER_NAME,
                        c.CUSTOMER_EMAIL,
@@ -30,7 +30,7 @@
                        c.CUSTOMER_CATEGORY,
                        FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS
                 FROM TGT_CUSTOMER c
-            </createOrReplaceView>
+            </createView>
         </rollback>
     </changeSet>
 
