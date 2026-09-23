@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="update-vw-customer-summary-region" author="asr-team" labels="v1.8">
+        <createOrReplaceView schemaName="ASR_OWNER" viewName="VW_CUSTOMER_SUMMARY">
+            SELECT c.CUSTOMER_ID,
+                   c.CUSTOMER_NAME,
+                   c.CUSTOMER_EMAIL,
+                   c.SOURCE_SYSTEM,
+                   c.CREATED_DATE,
+                   c.MODIFIED_DATE,
+                   c.CUSTOMER_PHONE,
+                   c.CUSTOMER_CATEGORY,
+                   c.CUSTOMER_REGION,
+                   FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS
+            FROM TGT_CUSTOMER c
+        </createOrReplaceView>
+    </changeSet>
+
+</databaseChangeLog>
