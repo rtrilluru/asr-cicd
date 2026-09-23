@@ -1,10 +1,10 @@
-SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE,CUSTOMER_CATEGORY
-FLATFILE,Alpha Technologies,alpha@alphatech.com,+1-555-0201,GOLD
-FLATFILE,Beta Solutions,info@betasol.com,+1-555-0202,SILVER
-FLATFILE,Gamma Analytics,contact@gamma.io,+1-555-0203,GOLD
-FLATFILE,Delta Systems,hello@deltasys.com,+1-555-0204,BRONZE
-FLATFILE,Epsilon Corp,sales@epsilon.com,+1-555-0205,SILVER
-FLATFILE,Acme Corporation,info@acmecorp.com,+1-555-0301,GOLD
-FLATFILE,Wayne Enterprises,bruce@wayne.com,+1-555-0302,GOLD
-FLATFILE,Stark Industries,tony@stark.com,+1-555-0303,GOLD
-FLATFILE,Umbrella Corp,contact@umbrella.com,+1-555-0304,BRONZE
+SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE,CUSTOMER_CATEGORY,CUSTOMER_REGION
+FLATFILE,Alpha Technologies,alpha@alphatech.com,+1-555-0201,GOLD,US-EAST
+FLATFILE,Beta Solutions,info@betasol.com,+1-555-0202,SILVER,US-WEST
+FLATFILE,Gamma Analytics,contact@gamma.io,+1-555-0203,GOLD,EU-WEST
+FLATFILE,Delta Systems,hello@deltasys.com,+1-555-0204,BRONZE,US-EAST
+FLATFILE,Epsilon Corp,sales@epsilon.com,+1-555-0205,SILVER,AP-SOUTH
+FLATFILE,Acme Corporation,info@acmecorp.com,+1-555-0301,GOLD,US-WEST
+FLATFILE,Wayne Enterprises,bruce@wayne.com,+1-555-0302,GOLD,US-EAST
+FLATFILE,Stark Industries,tony@stark.com,+1-555-0303,GOLD,EU-WEST
+FLATFILE,Umbrella Corp,contact@umbrella.com,+1-555-0304,BRONZE,AP-SOUTH
