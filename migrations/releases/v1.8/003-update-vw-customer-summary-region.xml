@@ -18,6 +18,20 @@
                    FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS
             FROM TGT_CUSTOMER c
         </createOrReplaceView>
+        <rollback>
+            <createOrReplaceView schemaName="ASR_OWNER" viewName="VW_CUSTOMER_SUMMARY">
+                SELECT c.CUSTOMER_ID,
+                       c.CUSTOMER_NAME,
+                       c.CUSTOMER_EMAIL,
+                       c.SOURCE_SYSTEM,
+                       c.CREATED_DATE,
+                       c.MODIFIED_DATE,
+                       c.CUSTOMER_PHONE,
+                       c.CUSTOMER_CATEGORY,
+                       FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS
+                FROM TGT_CUSTOMER c
+            </createOrReplaceView>
+        </rollback>
     </changeSet>
 
 </databaseChangeLog>
