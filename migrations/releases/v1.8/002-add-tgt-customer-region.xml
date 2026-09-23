@@ -8,6 +8,9 @@
         <addColumn schemaName="ASR_OWNER" tableName="TGT_CUSTOMER">
             <column name="CUSTOMER_REGION" type="VARCHAR2(50)" defaultValue="US-EAST"/>
         </addColumn>
+        <rollback>
+            <dropColumn schemaName="ASR_OWNER" tableName="TGT_CUSTOMER" columnName="CUSTOMER_REGION"/>
+        </rollback>
     </changeSet>
 
 </databaseChangeLog>

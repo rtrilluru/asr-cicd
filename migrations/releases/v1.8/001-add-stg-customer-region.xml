@@ -8,6 +8,10 @@
         <addColumn schemaName="ASR_OWNER" tableName="STG_CUSTOMER">
             <column name="CUSTOMER_REGION" type="VARCHAR2(50)"/>
         </addColumn>
+        <rollback>
+            <dropColumn schemaName="ASR_OWNER" tableName="STG_CUSTOMER" columnName="CUSTOMER_REGION"/>
+        </rollback>
+
     </changeSet>
 
 </databaseChangeLog>
