@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.8-004-update-pkg-customer-load" author="asr-team" labels="v1.8">
+        <comment>Make PKG_CUSTOMER_LOAD dynamic — automatically handles any columns common to STG and TGT</comment>
+        <sql splitStatements="false" schemaName="ASR_OWNER">
+            CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
+                PROCEDURE PROCESS_STAGING IS
+                    v_start_time  TIMESTAMP := SYSTIMESTAMP;
+                    v_count       NUMBER := 0;
+                    v_cols        VARCHAR2(4000);
+                    v_update_set  VARCHAR2(4000);
+                    v_insert_cols VARCHAR2(4000);
+                    v_insert_vals VARCHAR2(4000);
+                    v_sql         VARCHAR2(8000);
+                BEGIN
+                    -- Find data columns common to both STG_CUSTOMER and TGT_CUSTOMER
+                    -- Exclude system/control columns managed by the MERGE itself
+                    SELECT LISTAGG(col, ', ') WITHIN GROUP (ORDER BY col),
+                           LISTAGG(CASE WHEN col != 'CUSTOMER_EMAIL'
+                                        THEN 't.' || col || ' = s.' || col END, ', ')
+                               WITHIN GROUP (ORDER BY col),
+                           LISTAGG(col, ', ') WITHIN GROUP (ORDER BY col),
+                           LISTAGG('s.' || col, ', ') WITHIN GROUP (ORDER BY col)
+                    INTO   v_cols, v_update_set, v_insert_cols, v_insert_vals
+                    FROM (
+                        SELECT s.column_name AS col
+                        FROM   user_tab_columns s
+                        JOIN   user_tab_columns t ON t.column_name = s.column_name
+                                                  AND t.table_name = 'TGT_CUSTOMER'
+                        WHERE  s.table_name = 'STG_CUSTOMER'
+                        AND    s.column_name NOT IN ('CUSTOMER_ID','CREATED_DATE','MODIFIED_DATE',
+                                                     'STG_ID','PROCESS_FLAG','PROCESS_DATE')
+                    );
+
+                    -- Remove leading ", " from update set (NULL entries from CASE)
+                    v_update_set := LTRIM(v_update_set, ', ');
+
+                    -- Build dynamic MERGE: set-based, no cursor loop
+                    v_sql := 'MERGE INTO TGT_CUSTOMER t '
+                          || 'USING (SELECT ' || v_cols || ' FROM STG_CUSTOMER WHERE PROCESS_FLAG = ''N'') s '
+                          || 'ON (t.CUSTOMER_EMAIL = s.CUSTOMER_EMAIL) '
+                          || 'WHEN MATCHED THEN UPDATE SET ' || v_update_set || ', t.MODIFIED_DATE = SYSDATE '
+                          || 'WHEN NOT MATCHED THEN INSERT (' || v_insert_cols || ', CREATED_DATE, MODIFIED_DATE) '
+                          || 'VALUES (' || v_insert_vals || ', SYSDATE, SYSDATE)';
+
+                    EXECUTE IMMEDIATE v_sql;
+                    v_count := SQL%ROWCOUNT;
+
+                    -- Mark all processed
+                    UPDATE STG_CUSTOMER SET PROCESS_FLAG = 'Y' WHERE PROCESS_FLAG = 'N';
+
+                    COMMIT;
+
+                    INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+                    VALUES ('PROCESS_STAGING', v_start_time, SYSTIMESTAMP, v_count, 'COMPLETED');
+                    COMMIT;
+
+                    DBMS_OUTPUT.PUT_LINE('Processed ' || v_count || ' staging records');
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        ROLLBACK;
+                        INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+                        VALUES ('PROCESS_STAGING', v_start_time, SYSTIMESTAMP, 0, 'FAILED');
+                        COMMIT;
+                        RAISE;
+                END PROCESS_STAGING;
+            END PKG_CUSTOMER_LOAD;
+        </sql>
+        <rollback>
+            <sql splitStatements="false" schemaName="ASR_OWNER">
+                CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
+                    PROCEDURE PROCESS_STAGING IS
+                        v_start_time TIMESTAMP := SYSTIMESTAMP;
+                        v_count NUMBER := 0;
+                    BEGIN
+                        FOR rec IN (SELECT STG_ID, SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE
+                                    FROM STG_CUSTOMER WHERE PROCESS_FLAG = 'N')
+                        LOOP
+                            MERGE INTO TGT_CUSTOMER t
+                            USING (SELECT rec.CUSTOMER_NAME AS CUSTOMER_NAME,
+                                          rec.CUSTOMER_EMAIL AS CUSTOMER_EMAIL,
+                                          rec.CUSTOMER_PHONE AS CUSTOMER_PHONE,
+                                          rec.SOURCE_SYSTEM AS SOURCE_SYSTEM FROM dual) s
+                            ON (t.CUSTOMER_EMAIL = s.CUSTOMER_EMAIL)
+                            WHEN MATCHED THEN
+                                UPDATE SET t.CUSTOMER_NAME = s.CUSTOMER_NAME,
+                                           t.CUSTOMER_PHONE = s.CUSTOMER_PHONE,
+                                           t.SOURCE_SYSTEM = s.SOURCE_SYSTEM,
+                                           t.MODIFIED_DATE = SYSDATE
+                            WHEN NOT MATCHED THEN
+                                INSERT (CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE, SOURCE_SYSTEM, CREATED_DATE, MODIFIED_DATE)
+                                VALUES (s.CUSTOMER_NAME, s.CUSTOMER_EMAIL, s.CUSTOMER_PHONE, s.SOURCE_SYSTEM, SYSDATE, SYSDATE);
+                            UPDATE STG_CUSTOMER SET PROCESS_FLAG = 'Y' WHERE STG_ID = rec.STG_ID;
+                            v_count := v_count + 1;
+                        END LOOP;
+                        COMMIT;
+                        INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+                        VALUES ('PROCESS_STAGING', v_start_time, SYSTIMESTAMP, v_count, 'COMPLETED');
+                        COMMIT;
+                        DBMS_OUTPUT.PUT_LINE('Processed ' || v_count || ' staging records');
+                    EXCEPTION
+                        WHEN OTHERS THEN
+                            ROLLBACK;
+                            INSERT INTO ETL_PROCESS_LOG (PROCESS_NAME, START_TIME, END_TIME, RECORDS_LOADED, STATUS)
+                            VALUES ('PROCESS_STAGING', v_start_time, SYSTIMESTAMP, 0, 'FAILED');
+                            COMMIT;
+                            RAISE;
+                    END PROCESS_STAGING;
+                END PKG_CUSTOMER_LOAD;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
