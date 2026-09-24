@@ -31,8 +31,8 @@
         <validCheckSum>ANY</validCheckSum>
         <comment>Trigger to capture INSERT/UPDATE/DELETE on TGT_CUSTOMER</comment>
         <createProcedure dbms="oracle"><![CDATA[
-CREATE OR REPLACE TRIGGER TRG_CUSTOMER_AUDIT
-AFTER INSERT OR UPDATE OR DELETE ON TGT_CUSTOMER
+CREATE OR REPLACE TRIGGER ASR_OWNER.TRG_CUSTOMER_AUDIT
+AFTER INSERT OR UPDATE OR DELETE ON ASR_OWNER.TGT_CUSTOMER
 FOR EACH ROW
 DECLARE
     v_action VARCHAR2(10);
@@ -45,7 +45,7 @@ BEGIN
         v_action := 'DELETE';
     END IF;
 
-    INSERT INTO TGT_CUSTOMER_AUDIT (
+    INSERT INTO ASR_OWNER.TGT_CUSTOMER_AUDIT (
         CUSTOMER_ID, ACTION, CHANGED_BY, CHANGE_DATE,
         OLD_NAME, NEW_NAME, OLD_EMAIL, NEW_EMAIL
     ) VALUES (
@@ -62,7 +62,7 @@ END TRG_CUSTOMER_AUDIT;
 /
         ]]></createProcedure>
         <rollback>
-            <sql>DROP TRIGGER TRG_CUSTOMER_AUDIT</sql>
+            <sql>DROP TRIGGER ASR_OWNER.TRG_CUSTOMER_AUDIT</sql>
         </rollback>
     </changeSet>
 
