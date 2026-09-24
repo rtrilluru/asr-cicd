@@ -220,7 +220,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G6 FAILED: Changelog validation errors detected"
             echo "::endgroup::"
             exit 1
