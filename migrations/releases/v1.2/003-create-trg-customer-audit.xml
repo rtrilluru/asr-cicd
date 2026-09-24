@@ -27,7 +27,8 @@
     </changeSet>
 
     <!-- ChangeSet 2: Create the audit trigger -->
-    <changeSet id="create-trg-customer-audit" author="rtrilluru">
+    <changeSet id="create-trg-customer-audit" author="rtrilluru" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Trigger to capture INSERT/UPDATE/DELETE on TGT_CUSTOMER</comment>
         <createProcedure dbms="oracle"><![CDATA[
 CREATE OR REPLACE TRIGGER TRG_CUSTOMER_AUDIT

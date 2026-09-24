@@ -4,7 +4,8 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <changeSet id="v1.9-004-update-fn-customer-status" author="asr-team" labels="v1.9">
+    <changeSet id="v1.9-004-update-fn-customer-status" author="asr-team" labels="v1.9" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Include CUSTOMER_INDUSTRY in completeness check</comment>
         <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
 CREATE OR REPLACE FUNCTION ASR_OWNER.FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
