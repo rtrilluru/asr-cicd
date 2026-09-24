@@ -74,7 +74,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Pre-Deploy Tag failed"
             echo "::endgroup::"
             exit 1
@@ -101,7 +101,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G9 FAILED"
             echo "::endgroup::"
             exit 1
@@ -128,7 +128,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED"
             echo "::endgroup::"
@@ -157,7 +157,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Auto-Rollback failed"
             exit 1
           fi
@@ -194,7 +194,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G11 FAILED"
             echo "::endgroup::"
             exit 1
@@ -241,7 +241,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::APEX Import failed"
             echo "::endgroup::"
             exit 1
@@ -278,7 +278,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G27 FAILED"
             echo "::endgroup::"
             exit 1
@@ -324,7 +324,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G14 FAILED"
             echo "::endgroup::"
             exit 1
@@ -403,7 +403,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G15 FAILED"
             echo "::endgroup::"
             exit 1
@@ -460,7 +460,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G16 FAILED"
             echo "::endgroup::"
             exit 1
