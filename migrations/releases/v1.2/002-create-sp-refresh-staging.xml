@@ -9,7 +9,7 @@
         <validCheckSum>ANY</validCheckSum>
         <comment>Procedure to clean up old processed staging records</comment>
         <createProcedure dbms="oracle"><![CDATA[
-CREATE OR REPLACE PROCEDURE SP_REFRESH_STAGING(
+CREATE OR REPLACE PROCEDURE ASR_OWNER.SP_REFRESH_STAGING(
     p_days_old       IN NUMBER DEFAULT 30,
     p_records_deleted OUT NUMBER
 )
@@ -38,7 +38,7 @@ END SP_REFRESH_STAGING;
 /
         ]]></createProcedure>
         <rollback>
-            <sql>DROP PROCEDURE SP_REFRESH_STAGING</sql>
+            <sql>DROP PROCEDURE ASR_OWNER.SP_REFRESH_STAGING</sql>
         </rollback>
     </changeSet>
 
