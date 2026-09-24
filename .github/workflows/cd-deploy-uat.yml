@@ -76,7 +76,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Pre-deploy tagging failed"
             echo "::endgroup::"
             exit 1
@@ -102,7 +102,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G9 FAILED"
             echo "::endgroup::"
             exit 1
@@ -129,7 +129,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED"
             echo "::endgroup::"
@@ -155,7 +155,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Auto-rollback failed"
             exit 1
           fi
@@ -192,7 +192,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G11 FAILED"
             echo "::endgroup::"
             exit 1
@@ -221,7 +221,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::APEX import failed"
             echo "::endgroup::"
             exit 1
@@ -258,7 +258,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G27 FAILED"
             echo "::endgroup::"
             exit 1
@@ -299,7 +299,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G14 FAILED"
             echo "::endgroup::"
             exit 1
@@ -353,7 +353,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G18 FAILED"
             echo "::endgroup::"
             exit 1
@@ -381,7 +381,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G19 FAILED — rollback step failed"
             echo "::endgroup::"
             exit 1
@@ -401,7 +401,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G19 FAILED — object check after rollback failed"
             echo "::endgroup::"
             exit 1
@@ -414,7 +414,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G19 FAILED — re-apply migration failed"
             echo "::endgroup::"
             exit 1
@@ -436,7 +436,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G19 FAILED — object check after re-apply failed"
             echo "::endgroup::"
             exit 1

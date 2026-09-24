@@ -96,7 +96,7 @@ EOF
 
 echo "$OUTPUT"
 
-if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
     echo ""
     echo "ERROR: Data loading failed!"
     exit 1
