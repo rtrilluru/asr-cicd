@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.9-003-update-vw-customer-summary" author="asr-team" labels="v1.9">
+        <comment>Add CUSTOMER_INDUSTRY to customer summary view</comment>
+        <createView viewName="VW_CUSTOMER_SUMMARY" schemaName="ASR_OWNER" replaceIfExists="true">
+            SELECT c.CUSTOMER_ID,
+                   c.CUSTOMER_NAME,
+                   c.CUSTOMER_EMAIL,
+                   c.CUSTOMER_PHONE,
+                   c.SOURCE_SYSTEM,
+                   c.CREATED_DATE,
+                   c.MODIFIED_DATE,
+                   c.CUSTOMER_CATEGORY,
+                   c.CUSTOMER_REGION,
+                   c.CUSTOMER_INDUSTRY,
+                   FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS,
+                   (SELECT COUNT(*) FROM TGT_CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
+            FROM TGT_CUSTOMER c
+        </createView>
+        <rollback>
+            <createView viewName="VW_CUSTOMER_SUMMARY" schemaName="ASR_OWNER" replaceIfExists="true">
+                SELECT c.CUSTOMER_ID,
+                       c.CUSTOMER_NAME,
+                       c.CUSTOMER_EMAIL,
+                       c.CUSTOMER_PHONE,
+                       c.SOURCE_SYSTEM,
+                       c.CREATED_DATE,
+                       c.MODIFIED_DATE,
+                       c.CUSTOMER_CATEGORY,
+                       c.CUSTOMER_REGION,
+                       FN_CUSTOMER_STATUS(c.CUSTOMER_ID) AS CUSTOMER_STATUS,
+                       (SELECT COUNT(*) FROM TGT_CUSTOMER_AUDIT a WHERE a.CUSTOMER_ID = c.CUSTOMER_ID) AS AUDIT_COUNT
+                FROM TGT_CUSTOMER c
+            </createView>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
