@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="v1.9-004-update-fn-customer-status" author="asr-team" labels="v1.9">
+        <comment>Include CUSTOMER_INDUSTRY in completeness check</comment>
+        <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
+CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
+RETURN VARCHAR2
+IS
+    v_name      TGT_CUSTOMER.CUSTOMER_NAME%TYPE;
+    v_email     TGT_CUSTOMER.CUSTOMER_EMAIL%TYPE;
+    v_phone     TGT_CUSTOMER.CUSTOMER_PHONE%TYPE;
+    v_category  TGT_CUSTOMER.CUSTOMER_CATEGORY%TYPE;
+    v_region    TGT_CUSTOMER.CUSTOMER_REGION%TYPE;
+    v_industry  TGT_CUSTOMER.CUSTOMER_INDUSTRY%TYPE;
+    v_fields    NUMBER := 0;
+    v_total     NUMBER := 6;
+BEGIN
+    SELECT CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE,
+           CUSTOMER_CATEGORY, CUSTOMER_REGION, CUSTOMER_INDUSTRY
+    INTO v_name, v_email, v_phone, v_category, v_region, v_industry
+    FROM TGT_CUSTOMER
+    WHERE CUSTOMER_ID = p_customer_id;
+
+    IF v_name IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_email IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_phone IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_category IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_region IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_industry IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+
+    IF v_fields = v_total THEN
+        RETURN 'COMPLETE';
+    ELSIF v_fields >= 1 THEN
+        RETURN 'PARTIAL';
+    ELSE
+        RETURN 'INCOMPLETE';
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'NOT_FOUND';
+END FN_CUSTOMER_STATUS;
+/
+        ]]></createProcedure>
+        <rollback>
+            <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
+CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
+RETURN VARCHAR2
+IS
+    v_name      TGT_CUSTOMER.CUSTOMER_NAME%TYPE;
+    v_email     TGT_CUSTOMER.CUSTOMER_EMAIL%TYPE;
+    v_phone     TGT_CUSTOMER.CUSTOMER_PHONE%TYPE;
+    v_category  TGT_CUSTOMER.CUSTOMER_CATEGORY%TYPE;
+    v_region    TGT_CUSTOMER.CUSTOMER_REGION%TYPE;
+    v_fields    NUMBER := 0;
+    v_total     NUMBER := 5;
+BEGIN
+    SELECT CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE,
+           CUSTOMER_CATEGORY, CUSTOMER_REGION
+    INTO v_name, v_email, v_phone, v_category, v_region
+    FROM TGT_CUSTOMER
+    WHERE CUSTOMER_ID = p_customer_id;
+
+    IF v_name IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_email IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_phone IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_category IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+    IF v_region IS NOT NULL THEN v_fields := v_fields + 1; END IF;
+
+    IF v_fields = v_total THEN
+        RETURN 'COMPLETE';
+    ELSIF v_fields >= 1 THEN
+        RETURN 'PARTIAL';
+    ELSE
+        RETURN 'INCOMPLETE';
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 'NOT_FOUND';
+END FN_CUSTOMER_STATUS;
+/
+            ]]></createProcedure>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
