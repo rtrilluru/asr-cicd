@@ -6,8 +6,9 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="v1.8-004-update-pkg-customer-load" author="asr-team" labels="v1.8">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Make PKG_CUSTOMER_LOAD dynamic — automatically handles any columns common to STG and TGT</comment>
-        <sql splitStatements="false" schemaName="ASR_OWNER">
+        <sql splitStatements="false">
             CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
                 PROCEDURE PROCESS_STAGING IS
                     v_start_time  TIMESTAMP := SYSTIMESTAMP;
@@ -72,7 +73,7 @@
             END PKG_CUSTOMER_LOAD;
         </sql>
         <rollback>
-            <sql splitStatements="false" schemaName="ASR_OWNER">
+            <sql splitStatements="false">
                 CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
                     PROCEDURE PROCESS_STAGING IS
                         v_start_time TIMESTAMP := SYSTIMESTAMP;
