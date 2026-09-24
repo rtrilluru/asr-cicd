@@ -23,6 +23,7 @@ on:
       - 'scripts/**'
       - 'data/**'
       - 'apex/**'
+      - '.github/workflows/**'
 
 jobs:
   validate:
