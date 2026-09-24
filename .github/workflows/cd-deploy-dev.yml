@@ -21,6 +21,7 @@ on:
       - 'scripts/**'
       - 'data/**'
       - 'apex/**'
+      - '.github/workflows/**'
 
 # Prevent concurrent deployments to same environment
 concurrency:
