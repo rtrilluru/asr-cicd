@@ -394,6 +394,8 @@ jobs:
 
           {
             echo "SET SERVEROUTPUT ON"
+            echo "DELETE FROM STG_CUSTOMER;"
+            echo "COMMIT;"
             HEADER=$(head -1 "$CSV_FILE" | xargs)
             tail -n +2 "$CSV_FILE" | while IFS= read -r line; do
               IFS=',' read -ra FIELDS <<< "$line"
