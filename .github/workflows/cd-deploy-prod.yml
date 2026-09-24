@@ -5,7 +5,8 @@
 # Runs on: Self-hosted runner
 # Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
 #         G14 (Smoke Tests), G21 (Backup), G22 (Deploy Window),
-#         G23 (Health Check), G24 (Prod Smoke), G25 (Performance)
+#         G23 (Health Check), G24 (Prod Smoke), G25 (Performance),
+#         G27 (APEX Validation)
 # Approval: Requires 3 reviewers (DBA + Tech Lead + Release Manager)
 # ============================================================
 
@@ -32,13 +33,29 @@ jobs:
     steps:
       - name: "Validate Confirmation"
         shell: bash
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY-PROD" ]; then
-            echo "::error::Confirmation failed. Expected 'DEPLOY-PROD', got '${{ github.event.inputs.confirm }}'"
+          if [ "$CONFIRM" != "DEPLOY-PROD" ]; then
+            echo "::error::Confirmation failed. Expected 'DEPLOY-PROD'"
             exit 1
           fi
           echo "✓ Deployment confirmed"
           echo "Branch: ${{ github.ref_name }}"
+
+      # ────────────────────────────────────────────────────────
+      # Branch Restriction
+      # ────────────────────────────────────────────────────────
+      - name: "Validate Branch"
+        shell: bash
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          if [[ "$BRANCH" == release/* ]] || [[ "$BRANCH" == "main" ]]; then
+            echo "✓ Branch '$BRANCH' is allowed for production deployment"
+          else
+            echo "::error::Branch '$BRANCH' is not allowed. Only 'release/*' or 'main' may deploy to PROD."
+            exit 1
+          fi
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,8 +71,8 @@ jobs:
           if [ "$HOUR" -ge 6 ] && [ "$HOUR" -le 22 ]; then
             echo "✓ Within deployment window (06:00-22:00 UTC)"
           else
-            echo "::warning::Outside deployment window (current: ${HOUR}:00 UTC)"
-            echo "Proceeding with caution — production deployment outside business hours"
+            echo "::error::G22 FAILED: Outside deployment window (current: ${HOUR}:00 UTC)"
+            exit 1
           fi
           echo "::endgroup::"
 
@@ -70,7 +87,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G23 — Pre-Deploy Health Check"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_result VARCHAR2(100);
@@ -91,7 +108,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G23 FAILED — Database not healthy"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G23 FAILED — Database not healthy"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -108,10 +131,17 @@ jobs:
           TAG_NAME="pre-prod-$(date +%Y%m%d-%H%M%S)"
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb tag -tag $TAG_NAME
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Pre-deploy tagging failed"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ Database tagged as: $TAG_NAME"
           echo "::endgroup::"
 
@@ -126,7 +156,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G21 — Backup Verification"
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_tag VARCHAR2(100);
@@ -151,6 +181,18 @@ jobs:
           /
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G21 FAILED — Database error during backup verification"
+            echo "::endgroup::"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -qi "WARNING"; then
+            echo "::error::G21 FAILED — Backup tag is missing or stale"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -165,11 +207,17 @@ jobs:
         run: |
           echo "::group::G9 — Dry-Run"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           lb update-sql -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G9 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G9 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ Dry-run successful"
           echo "::endgroup::"
 
@@ -186,11 +234,13 @@ jobs:
         run: |
           echo "::group::G10 — Execute Migration"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           lb update -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED"
             echo "::endgroup::"
@@ -210,10 +260,16 @@ jobs:
         run: |
           echo "::warning::PROD DEPLOYMENT FAILED — Emergency rollback to: $TAG_NAME"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Auto-rollback failed — manual intervention required"
+            exit 1
+          fi
           echo "✓ Emergency rollback complete"
 
       # ────────────────────────────────────────────────────────
@@ -227,7 +283,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G11 — Object Validity"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE v_invalid NUMBER;
           BEGIN
@@ -244,7 +300,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G11 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G11 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -277,11 +339,69 @@ jobs:
             exit 0
           fi
           echo "::group::APEX Import"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
           apex import -dir ${APEX_DIR} -applicationid 100
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::APEX Import failed"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ APEX application imported"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G27: APEX Validation
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G27: APEX Validation"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          APEX_DIR="apex/applications/f100"
+          if [ ! -d "$APEX_DIR" ]; then
+            echo "No APEX application — skipping G27"
+            exit 0
+          fi
+          echo "::group::G27 — APEX Validation"
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_app_id NUMBER;
+              v_pages  NUMBER;
+          BEGIN
+              SELECT application_id INTO v_app_id
+              FROM apex_applications
+              WHERE application_id = 100;
+              DBMS_OUTPUT.PUT_LINE('✓ APEX application 100 exists');
+
+              SELECT COUNT(*) INTO v_pages
+              FROM apex_application_pages
+              WHERE application_id = 100;
+              DBMS_OUTPUT.PUT_LINE('✓ APEX pages found: ' || v_pages);
+
+              IF v_pages = 0 THEN
+                  RAISE_APPLICATION_ERROR(-20027, 'No pages found in application 100');
+              END IF;
+          EXCEPTION
+              WHEN NO_DATA_FOUND THEN
+                  RAISE_APPLICATION_ERROR(-20027, 'APEX application 100 not found after import');
+          END;
+          /
+          EXIT
+          EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G27 FAILED — APEX validation error"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -295,7 +415,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G24 — Production Smoke Tests"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_pass NUMBER := 0; v_fail NUMBER := 0; v_count NUMBER; v_result VARCHAR2(20);
@@ -328,7 +448,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G24 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G24 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -342,7 +468,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G25 — Performance Baseline"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_start TIMESTAMP;
@@ -363,6 +489,18 @@ jobs:
           /
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G25 FAILED — Database error"
+            echo "::endgroup::"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -qi "WARNING.*exceeded.*5s"; then
+            echo "::error::G25 FAILED — Performance threshold exceeded"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -400,7 +538,7 @@ jobs:
           echo "║  ✓ PRODUCTION DEPLOYMENT SUCCESSFUL             ║"
           echo "╠══════════════════════════════════════════════════╣"
           echo "║  Tag: $TAG_NAME"
-          echo "║  Gates: G9,G10,G11,G21,G22,G23,G24,G25"
+          echo "║  Gates: G9,G10,G11,G21,G22,G23,G24,G25,G27"
           echo "║  Health Check: Passed"
           echo "║  Backup: Verified"
           echo "║  Performance: Baselined"

@@ -37,20 +37,28 @@ echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "════════════════════════════════════════════════════"
 echo ""
 
-# Step 1: Build INSERT statements from CSV
+# Step 1: Build INSERT statements from CSV (dynamic — reads header)
 echo "Step 1: Loading CSV into STG_CUSTOMER..."
+HEADER=$(head -1 "$CSV_FILE" | xargs)
+
 SQL_INSERTS=""
-while IFS=',' read -r sys name email phone; do
-    sys=$(echo "$sys" | xargs)
-    name=$(echo "$name" | xargs)
-    email=$(echo "$email" | xargs)
-    phone=$(echo "$phone" | xargs)
-    SQL_INSERTS="${SQL_INSERTS}INSERT INTO STG_CUSTOMER (SOURCE_SYSTEM, CUSTOMER_NAME, CUSTOMER_EMAIL, CUSTOMER_PHONE) VALUES ('${sys}', '${name}', '${email}', '${phone}');
+while IFS= read -r line; do
+    IFS=',' read -ra FIELDS <<< "$line"
+    VALUES=""
+    for field in "${FIELDS[@]}"; do
+        val=$(echo "$field" | xargs | sed "s/'/''/g")
+        if [ -z "$VALUES" ]; then
+            VALUES="'${val}'"
+        else
+            VALUES="${VALUES}, '${val}'"
+        fi
+    done
+    SQL_INSERTS="${SQL_INSERTS}INSERT INTO STG_CUSTOMER (${HEADER}) VALUES (${VALUES});
 "
 done < <(tail -n +2 "$CSV_FILE")
 
 # Step 2: Execute inserts and process staging
-sql -S "${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION}" <<EOF
+OUTPUT=$(sql -S "${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION}" <<EOF
 SET SERVEROUTPUT ON
 
 ${SQL_INSERTS}
@@ -84,8 +92,11 @@ FETCH FIRST 3 ROWS ONLY;
 
 EXIT
 EOF
+)
 
-if [ $? -ne 0 ]; then
+echo "$OUTPUT"
+
+if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
     echo ""
     echo "ERROR: Data loading failed!"
     exit 1
