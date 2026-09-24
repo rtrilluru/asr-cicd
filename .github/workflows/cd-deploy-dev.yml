@@ -159,6 +159,7 @@ jobs:
           DECLARE
               v_invalid NUMBER;
           BEGIN
+              DBMS_UTILITY.COMPILE_SCHEMA(schema => USER, compile_all => FALSE);
               SELECT COUNT(*) INTO v_invalid
               FROM user_objects WHERE status != 'VALID';
 
