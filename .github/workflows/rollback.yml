@@ -1,3 +1,12 @@
+# ============================================================
+# ASR CI/CD PIPELINE — Rollback Database
+# ============================================================
+# Triggers: Manual (workflow_dispatch)
+# Runs on: Self-hosted runner
+# Safety: Requires ROLLBACK confirmation, environment protection,
+#         post-rollback validation
+# ============================================================
+
 name: Rollback Database
 
 on:
@@ -12,19 +21,27 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: deploy-rollback
+  cancel-in-progress: false
+
 jobs:
   rollback:
     name: Rollback to Tag
     runs-on: self-hosted
+    environment: DB-DEV
 
     steps:
       - name: Validate Confirmation
         shell: bash
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "ROLLBACK" ]; then
+          if [ "$CONFIRM" != "ROLLBACK" ]; then
             echo "::error::Type ROLLBACK to confirm"
             exit 1
           fi
+          echo "✓ Rollback confirmed"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,10 +54,70 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
           TAG: ${{ github.event.inputs.tag_name }}
         run: |
-          export PATH=/opt/sqlcl/bin:$PATH
+          echo "::group::Execute Rollback to tag: $TAG"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOF
-          liquibase rollback -tag $TAG -changelog-file db.changelog-master.xml
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          lb rollback -tag $TAG -changelog-file db.changelog-master.xml
           EXIT
-          EOF
-          echo "✓ Rollback to $TAG complete"
+          EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Rollback failed — see errors above"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ Rollback to $TAG executed"
+          echo "::endgroup::"
+
+      - name: "Post-Rollback Validation"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Post-Rollback Object Validation"
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_invalid NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
+              IF v_invalid > 0 THEN
+                  FOR rec IN (SELECT object_type, object_name FROM user_objects WHERE status != 'VALID') LOOP
+                      DBMS_OUTPUT.PUT_LINE('  INVALID: ' || rec.object_type || ' — ' || rec.object_name);
+                  END LOOP;
+                  RAISE_APPLICATION_ERROR(-20001, v_invalid || ' invalid object(s) after rollback');
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('All objects VALID after rollback');
+              END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Post-rollback validation failed"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ Post-rollback validation passed"
+          echo "::endgroup::"
+
+      - name: "Rollback Summary"
+        if: success()
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag_name }}
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════"
+          echo "  ✓ ROLLBACK SUCCESSFUL"
+          echo "════════════════════════════════════════════════════"
+          echo "  Rolled back to: $TAG"
+          echo "  Objects: All VALID"
+          echo "  Actor: ${{ github.actor }}"
+          echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "════════════════════════════════════════════════════"

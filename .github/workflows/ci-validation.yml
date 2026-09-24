@@ -13,9 +13,8 @@ on:
   pull_request:
     branches:
       - develop
-      - sit
-      - uat
-      - master
+      - 'release/**'
+      - main
     paths:
       - 'migrations/**'
       - 'rollbacks/**'
@@ -213,14 +212,15 @@ jobs:
           echo "Validating changelog syntax via SQLcl Liquibase..."
 
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET ECHO OFF
           SET FEEDBACK OFF
-          liquibase validate -changelog-file db.changelog-master.xml
+          lb validate -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G6 FAILED: Changelog validation errors detected"
             echo "::endgroup::"
             exit 1

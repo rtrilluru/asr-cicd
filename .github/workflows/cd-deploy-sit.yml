@@ -31,13 +31,25 @@ jobs:
     steps:
       - name: "Validate Confirmation"
         shell: bash
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY-SIT" ]; then
-            echo "::error::Confirmation failed. Expected 'DEPLOY-SIT', got '${{ github.event.inputs.confirm }}'"
+          if [ "$CONFIRM" != "DEPLOY-SIT" ]; then
+            echo "::error::Confirmation failed. Expected 'DEPLOY-SIT'"
             exit 1
           fi
           echo "✓ Deployment confirmed"
           echo "Branch: ${{ github.ref_name }}"
+
+      - name: "Validate Branch"
+        shell: bash
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" != release/* ]]; then
+            echo "::error::Branch '$REF' is not a release branch. Only release/* branches may deploy to SIT."
+            exit 1
+          fi
+          echo "✓ Branch '$REF' is a valid release branch"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,10 +68,17 @@ jobs:
           TAG_NAME="pre-sit-$(date +%Y%m%d-%H%M%S)"
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb tag -tag $TAG_NAME
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Pre-Deploy Tag failed"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ Database tagged as: $TAG_NAME"
           echo "::endgroup::"
 
@@ -75,12 +94,14 @@ jobs:
         run: |
           echo "::group::G9 — Dry-Run (SQL Preview)"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET ECHO OFF
           lb update-sql -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G9 FAILED"
             echo "::endgroup::"
             exit 1
@@ -101,11 +122,13 @@ jobs:
         run: |
           echo "::group::G10 — Execute Migration"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           lb update -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED"
             echo "::endgroup::"
@@ -128,10 +151,16 @@ jobs:
         run: |
           echo "::warning::DEPLOYMENT FAILED — Rolling back to: $TAG_NAME"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Auto-Rollback failed"
+            exit 1
+          fi
           echo "✓ Rollback complete"
 
       # ────────────────────────────────────────────────────────
@@ -145,7 +174,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G11 — Object Validity"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_invalid NUMBER;
@@ -163,7 +192,9 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G11 FAILED"
             echo "::endgroup::"
             exit 1
@@ -204,11 +235,55 @@ jobs:
             exit 0
           fi
           echo "::group::APEX Import"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
           apex import -dir ${APEX_DIR} -applicationid 100
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::APEX Import failed"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ APEX application imported"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # G27: APEX Import Validation
+      # ────────────────────────────────────────────────────────
+      - name: "Gate G27: APEX Import Validation"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          APEX_DIR="apex/applications/f100"
+          if [ ! -d "$APEX_DIR" ]; then
+            echo "No APEX application — skipping validation"
+            exit 0
+          fi
+          echo "::group::G27 — APEX Import Validation"
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE v_count NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_count FROM apex_applications WHERE application_id = 100;
+              IF v_count = 1 THEN DBMS_OUTPUT.PUT_LINE('APEX App 100 exists and is accessible');
+              ELSE RAISE_APPLICATION_ERROR(-20002, 'APEX App 100 not found after import'); END IF;
+          END;
+          /
+          EXIT
+          EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G27 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ APEX application validated"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -222,7 +297,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G14 — Smoke Tests"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_pass NUMBER := 0;
@@ -247,7 +322,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G14 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G14 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -261,7 +342,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G15 — Integration Tests"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_pass NUMBER := 0;
@@ -320,7 +401,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G15 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G15 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -334,7 +421,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G16 — Data Pipeline Tests"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_before NUMBER;
@@ -371,7 +458,13 @@ jobs:
           /
           EXIT
           EOSQL
-          if [ $? -ne 0 ]; then echo "::error::G16 FAILED"; echo "::endgroup::"; exit 1; fi
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G16 FAILED"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────

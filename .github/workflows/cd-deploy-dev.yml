@@ -56,11 +56,12 @@ jobs:
           echo "Creating tag: $TAG_NAME"
 
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb tag -tag $TAG_NAME
           EXIT
           EOSQL
-
+          )
+          echo "$OUTPUT"
           echo "✓ Database tagged as: $TAG_NAME"
           echo "::endgroup::"
 
@@ -76,13 +77,14 @@ jobs:
         run: |
           echo "::group::G9 — Dry-Run (SQL Preview)"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET ECHO OFF
           lb update-sql -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G9 FAILED: Dry-run generated errors"
             echo "::endgroup::"
             exit 1
@@ -103,12 +105,13 @@ jobs:
         run: |
           echo "::group::G10 — Execute Migration"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           lb update -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED: Migration execution error"
             echo "::endgroup::"
@@ -131,10 +134,12 @@ jobs:
         run: |
           echo "::warning::DEPLOYMENT FAILED — Executing auto-rollback to tag: $TAG_NAME"
           cd migrations
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
           lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
           echo "✓ Rollback complete — database restored to pre-deployment state"
 
       # ────────────────────────────────────────────────────────
@@ -148,7 +153,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G11 — Object Validity"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           SET PAGESIZE 0
           DECLARE
@@ -171,8 +176,9 @@ jobs:
           /
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G11 FAILED: Invalid objects detected after deployment"
             echo "::endgroup::"
             exit 1
@@ -199,16 +205,18 @@ jobs:
           echo "::group::APEX Import"
           echo "Importing APEX application from: $APEX_DIR"
 
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
           apex import -dir ${APEX_DIR} -applicationid 100
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
-            echo "::warning::APEX import encountered issues — check logs"
-          else
-            echo "✓ APEX application imported successfully"
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::APEX import failed — see errors above"
+            echo "::endgroup::"
+            exit 1
           fi
+          echo "✓ APEX application imported successfully"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -228,7 +236,7 @@ jobs:
           fi
 
           echo "::group::G27 — APEX Import Validation"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_count NUMBER;
@@ -238,7 +246,7 @@ jobs:
               WHERE application_id = 100;
 
               IF v_count = 1 THEN
-                  DBMS_OUTPUT.PUT_LINE('✓ APEX App 100 exists and is accessible');
+                  DBMS_OUTPUT.PUT_LINE('APEX App 100 exists and is accessible');
               ELSE
                   RAISE_APPLICATION_ERROR(-20002, 'APEX App 100 not found after import');
               END IF;
@@ -246,12 +254,14 @@ jobs:
           /
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
-            echo "::warning::G27: APEX validation issue detected"
-          else
-            echo "✓ APEX application validated"
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::G27 FAILED: APEX validation issue detected"
+            echo "::endgroup::"
+            exit 1
           fi
+          echo "✓ APEX application validated"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -265,7 +275,7 @@ jobs:
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
           echo "::group::G14 — Smoke Tests"
-          sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_pass NUMBER := 0;
@@ -279,31 +289,31 @@ jobs:
                 AND object_type IN ('PACKAGE', 'PACKAGE BODY')
                 AND status = 'VALID';
               IF v_count = 2 THEN
-                  DBMS_OUTPUT.PUT_LINE('✓ Test 1: PKG_CUSTOMER_LOAD is VALID');
+                  DBMS_OUTPUT.PUT_LINE('Test 1: PKG_CUSTOMER_LOAD is VALID');
                   v_pass := v_pass + 1;
               ELSE
-                  DBMS_OUTPUT.PUT_LINE('✗ Test 1: PKG_CUSTOMER_LOAD has invalid components');
+                  DBMS_OUTPUT.PUT_LINE('FAIL Test 1: PKG_CUSTOMER_LOAD has invalid components');
                   v_fail := v_fail + 1;
               END IF;
 
               -- Test 2: Package is callable
               BEGIN
                   PKG_CUSTOMER_LOAD.PROCESS_STAGING;
-                  DBMS_OUTPUT.PUT_LINE('✓ Test 2: Package executed successfully');
+                  DBMS_OUTPUT.PUT_LINE('Test 2: Package executed successfully');
                   v_pass := v_pass + 1;
               EXCEPTION
                   WHEN OTHERS THEN
-                      DBMS_OUTPUT.PUT_LINE('✗ Test 2: ' || SQLERRM);
+                      DBMS_OUTPUT.PUT_LINE('FAIL Test 2: ' || SQLERRM);
                       v_fail := v_fail + 1;
               END;
 
               -- Test 3: Target table has data
               SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER;
               IF v_count > 0 THEN
-                  DBMS_OUTPUT.PUT_LINE('✓ Test 3: TGT_CUSTOMER has ' || v_count || ' rows');
+                  DBMS_OUTPUT.PUT_LINE('Test 3: TGT_CUSTOMER has ' || v_count || ' rows');
                   v_pass := v_pass + 1;
               ELSE
-                  DBMS_OUTPUT.PUT_LINE('✗ Test 3: TGT_CUSTOMER is empty');
+                  DBMS_OUTPUT.PUT_LINE('FAIL Test 3: TGT_CUSTOMER is empty');
                   v_fail := v_fail + 1;
               END IF;
 
@@ -318,8 +328,9 @@ jobs:
           /
           EXIT
           EOSQL
-
-          if [ $? -ne 0 ]; then
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
             echo "::error::G14 FAILED: Smoke tests detected issues"
             echo "::endgroup::"
             exit 1
@@ -386,7 +397,7 @@ jobs:
               IFS=',' read -ra FIELDS <<< "$line"
               VALUES=""
               for field in "${FIELDS[@]}"; do
-                val=$(echo "$field" | xargs)
+                val=$(echo "$field" | xargs | sed "s/'/''/g")
                 if [ -z "$VALUES" ]; then
                   VALUES="'${val}'"
                 else
@@ -398,14 +409,23 @@ jobs:
             echo "COMMIT;"
             echo "BEGIN"
             echo "  PKG_CUSTOMER_LOAD.PROCESS_STAGING;"
-            echo "  DBMS_OUTPUT.PUT_LINE('✓ Data flow: CSV → Staging → Target complete');"
+            echo "  DBMS_OUTPUT.PUT_LINE('Data flow: CSV to Staging to Target complete');"
             echo "END;"
             echo "/"
             echo "SELECT 'STG rows: ' || COUNT(*) AS result FROM STG_CUSTOMER;"
             echo "SELECT 'TGT rows: ' || COUNT(*) AS result FROM TGT_CUSTOMER;"
             echo "EXIT"
-          } | sql -S "${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION}"
+          } > /tmp/data_flow.sql
 
+          OUTPUT=$(sql -S "${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION}" @/tmp/data_flow.sql)
+          echo "$OUTPUT"
+          rm -f /tmp/data_flow.sql
+
+          if echo "$OUTPUT" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|Exception"; then
+            echo "::error::Data flow verification failed"
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "✓ Data flow verification complete"
           echo "::endgroup::"
 
