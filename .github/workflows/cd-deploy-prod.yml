@@ -110,7 +110,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G23 FAILED — Database not healthy"
             echo "::endgroup::"
             exit 1
@@ -137,7 +137,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Pre-deploy tagging failed"
             echo "::endgroup::"
             exit 1
@@ -183,7 +183,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G21 FAILED — Database error during backup verification"
             echo "::endgroup::"
             exit 1
@@ -213,7 +213,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G9 FAILED"
             echo "::endgroup::"
             exit 1
@@ -240,7 +240,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
             echo "::error::G10 FAILED"
             echo "::endgroup::"
@@ -266,7 +266,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Auto-rollback failed — manual intervention required"
             exit 1
           fi
@@ -302,7 +302,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G11 FAILED"
             echo "::endgroup::"
             exit 1
@@ -345,7 +345,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::APEX Import failed"
             echo "::endgroup::"
             exit 1
@@ -397,7 +397,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G27 FAILED — APEX validation error"
             echo "::endgroup::"
             exit 1
@@ -450,7 +450,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G24 FAILED"
             echo "::endgroup::"
             exit 1
@@ -491,7 +491,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -vE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::G25 FAILED — Database error"
             echo "::endgroup::"
             exit 1
