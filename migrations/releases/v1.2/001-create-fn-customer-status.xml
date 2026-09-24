@@ -5,7 +5,8 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <changeSet id="create-fn-customer-status" author="rtrilluru">
+    <changeSet id="create-fn-customer-status" author="rtrilluru" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Function to check customer data completeness</comment>
         <createProcedure dbms="oracle"><![CDATA[
 CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)

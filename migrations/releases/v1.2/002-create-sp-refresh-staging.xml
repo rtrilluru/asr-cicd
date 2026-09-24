@@ -5,7 +5,8 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <changeSet id="create-sp-refresh-staging" author="rtrilluru">
+    <changeSet id="create-sp-refresh-staging" author="rtrilluru" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Procedure to clean up old processed staging records</comment>
         <createProcedure dbms="oracle"><![CDATA[
 CREATE OR REPLACE PROCEDURE SP_REFRESH_STAGING(

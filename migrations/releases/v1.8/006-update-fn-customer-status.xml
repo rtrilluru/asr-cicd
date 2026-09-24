@@ -4,10 +4,11 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <changeSet id="v1.8-006-update-fn-customer-status" author="asr-team" labels="v1.8">
+    <changeSet id="v1.8-006-update-fn-customer-status" author="asr-team" labels="v1.8" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Include CUSTOMER_CATEGORY and CUSTOMER_REGION in completeness check</comment>
         <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
-CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
+CREATE OR REPLACE FUNCTION ASR_OWNER.FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
 RETURN VARCHAR2
 IS
     v_name      TGT_CUSTOMER.CUSTOMER_NAME%TYPE;
@@ -45,7 +46,7 @@ END FN_CUSTOMER_STATUS;
         ]]></createProcedure>
         <rollback>
             <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
-CREATE OR REPLACE FUNCTION FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
+CREATE OR REPLACE FUNCTION ASR_OWNER.FN_CUSTOMER_STATUS(p_customer_id IN NUMBER)
 RETURN VARCHAR2
 IS
     v_name      TGT_CUSTOMER.CUSTOMER_NAME%TYPE;

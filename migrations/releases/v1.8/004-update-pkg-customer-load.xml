@@ -9,7 +9,7 @@
         <validCheckSum>ANY</validCheckSum>
         <comment>Make PKG_CUSTOMER_LOAD dynamic — automatically handles any columns common to STG and TGT</comment>
         <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
-CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
+CREATE OR REPLACE PACKAGE BODY ASR_OWNER.PKG_CUSTOMER_LOAD AS
     PROCEDURE PROCESS_STAGING IS
         v_start_time  TIMESTAMP := SYSTIMESTAMP;
         v_count       NUMBER := 0;
@@ -69,7 +69,7 @@ END PKG_CUSTOMER_LOAD;
         ]]></createProcedure>
         <rollback>
             <createProcedure dbms="oracle" schemaName="ASR_OWNER"><![CDATA[
-CREATE OR REPLACE PACKAGE BODY PKG_CUSTOMER_LOAD AS
+CREATE OR REPLACE PACKAGE BODY ASR_OWNER.PKG_CUSTOMER_LOAD AS
     PROCEDURE PROCESS_STAGING IS
         v_start_time TIMESTAMP := SYSTIMESTAMP;
         v_count NUMBER := 0;
