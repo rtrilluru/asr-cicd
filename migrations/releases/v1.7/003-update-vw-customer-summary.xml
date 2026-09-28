@@ -5,7 +5,8 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <changeSet id="v1.7-003-update-vw-customer-summary" author="rtrilluru">
+    <changeSet id="v1.7-003-update-vw-customer-summary" author="rtrilluru" runOnChange="true">
+        <validCheckSum>ANY</validCheckSum>
         <comment>Add CUSTOMER_CATEGORY to customer summary view for APEX portal</comment>
         <createView viewName="VW_CUSTOMER_SUMMARY" schemaName="ASR_OWNER" replaceIfExists="true">
             SELECT c.CUSTOMER_ID, c.CUSTOMER_NAME, c.CUSTOMER_EMAIL, c.CUSTOMER_PHONE,
