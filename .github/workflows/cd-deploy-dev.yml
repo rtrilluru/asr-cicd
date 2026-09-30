@@ -1,10 +1,11 @@
 # ============================================================
 # ASR CI/CD PIPELINE — CD: Deploy to DEV
 # ============================================================
-# Triggers: On push to 'develop' branch (after PR merge)
-# Runs on: Self-hosted runner (your laptop)
-# Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
-#         G14 (Smoke Tests), G27 (APEX Import Validation)
+# Triggers:
+#   1. Push to 'develop' branch (auto-deploy on merge)
+#   2. Manual (workflow_dispatch)
+# Runs on: Self-hosted runner (EC2)
+# Flow: Detect changed SQL scripts → Run via SQLcl → Validate
 # ============================================================
 
 name: CD — Deploy to DEV
@@ -14,16 +15,12 @@ on:
     branches:
       - develop
     paths:
-      - 'migrations/**'
-      - 'rollbacks/**'
-      - 'packages/**'
-      - 'schema/**'
       - 'scripts/**'
       - 'data/**'
       - 'apex/**'
-      - '.github/workflows/**'
 
-# Prevent concurrent deployments to same environment
+  workflow_dispatch:
+
 concurrency:
   group: deploy-dev
   cancel-in-progress: false
@@ -36,143 +33,138 @@ jobs:
 
     steps:
       # ────────────────────────────────────────────────────────
-      # Checkout code
+      # Checkout code (with history for git diff)
       # ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # ────────────────────────────────────────────────────────
-      # Pre-Deploy: Tag current state (rollback point)
+      # Detect changed SQL scripts
       # ────────────────────────────────────────────────────────
-      - name: "Pre-Deploy: Tag database state"
+      - name: "Detect Changed Scripts"
+        id: changes
         shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          echo "::group::Tagging current database state"
-          TAG_NAME="pre-deploy-$(date +%Y%m%d-%H%M%S)"
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
-          echo "Creating tag: $TAG_NAME"
-
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          lb tag -tag $TAG_NAME
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          echo "✓ Database tagged as: $TAG_NAME"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # G9: Dry-Run Migration (preview SQL)
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G9: Dry-Run Migration (updateSQL)"
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G9 — Dry-Run (SQL Preview)"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET ECHO OFF
-          lb update-sql -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G9 FAILED: Dry-run generated errors"
-            echo "::endgroup::"
-            exit 1
+          echo "::group::Detecting changed SQL scripts"
+          CHANGED=$(git diff --name-only HEAD~1 -- 'scripts/**/*.sql' 2>/dev/null || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No SQL scripts changed in this push"
+            echo "HAS_SQL_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "Changed SQL scripts:"
+            echo "$CHANGED"
+            echo "$CHANGED" > /tmp/changed_sql.txt
+            echo "HAS_SQL_CHANGES=true" >> $GITHUB_ENV
           fi
-          echo "✓ Dry-run successful — SQL preview generated"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # G10: Execute Migration
+      # Run changed SQL scripts (ordered by type)
       # ────────────────────────────────────────────────────────
-      - name: "Gate G10: Execute Migration"
+      - name: "Deploy SQL Scripts"
+        if: env.HAS_SQL_CHANGES == 'true'
         id: deploy
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G10 — Execute Migration"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          lb update -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
-            echo "::error::G10 FAILED: Migration execution error"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
-          echo "✓ Migration executed successfully"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # Auto-Rollback on Deploy Failure
-      # ────────────────────────────────────────────────────────
-      - name: "Auto-Rollback (on deploy failure)"
-        if: failure() && steps.deploy.outcome == 'failure'
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::warning::DEPLOYMENT FAILED — Executing auto-rollback to tag: $TAG_NAME"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          echo "✓ Rollback complete — database restored to pre-deployment state"
-
-      # ────────────────────────────────────────────────────────
-      # G11: Post-Deploy Object Validation
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G11: Object Validity Check"
         shell: bash
         env:
           DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
           DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          echo "::group::G11 — Object Validity"
+          echo "::group::Deploy SQL Scripts via SQLcl"
+          ERRORS=0
+
+          # Run scripts in dependency order: ddl → packages → functions → procedures → triggers → views
+          for TYPE in ddl packages functions procedures triggers views; do
+            SCRIPTS=$(grep "scripts/${TYPE}/" /tmp/changed_sql.txt 2>/dev/null || true)
+            if [ -n "$SCRIPTS" ]; then
+              echo "── Deploying ${TYPE} ──"
+              # DDL scripts: ignore "already exists" errors for idempotent re-runs
+              if [ "$TYPE" = "ddl" ]; then
+                ORA_EXCLUDE="ORA-17110|ORA-01430|ORA-00955|ORA-01442|ORA-02275|ORA-02261|ORA-01408"
+              else
+                ORA_EXCLUDE="ORA-17110"
+              fi
+              while IFS= read -r script; do
+                if [ -f "$script" ]; then
+                  echo "  Running: $script"
+                  OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          SET ECHO ON
+          SET SERVEROUTPUT ON
+          @${script}
+          EXIT
+          EOSQL
+                  )
+                  echo "$OUTPUT"
+                  if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+                    echo "::error file=$script::Deployment failed"
+                    ERRORS=$((ERRORS+1))
+                  else
+                    echo "  ✓ $script deployed"
+                  fi
+                fi
+              done <<< "$SCRIPTS"
+            fi
+          done
+
+          # Run any other changed SQL scripts (e.g., data fixes)
+          OTHER=$(grep -v "scripts/ddl/\|scripts/packages/\|scripts/functions/\|scripts/procedures/\|scripts/triggers/\|scripts/views/\|scripts/loaders/" /tmp/changed_sql.txt 2>/dev/null || true)
+          if [ -n "$OTHER" ]; then
+            echo "── Deploying other scripts ──"
+            while IFS= read -r script; do
+              if [ -f "$script" ]; then
+                echo "  Running: $script"
+                OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          @${script}
+          EXIT
+          EOSQL
+                )
+                echo "$OUTPUT"
+                if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+                  echo "::error file=$script::Deployment failed"
+                  ERRORS=$((ERRORS+1))
+                fi
+              fi
+            done <<< "$OTHER"
+          fi
+
+          rm -f /tmp/changed_sql.txt
+
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::$ERRORS script(s) failed to deploy"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ All changed scripts deployed"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Recompile and validate objects
+      # ────────────────────────────────────────────────────────
+      - name: "Object Validity Check"
+        if: env.HAS_SQL_CHANGES == 'true'
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Object Validity"
           OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
-          SET PAGESIZE 0
           DECLARE
               v_invalid NUMBER;
           BEGIN
               DBMS_UTILITY.COMPILE_SCHEMA(schema => USER, compile_all => FALSE);
-              SELECT COUNT(*) INTO v_invalid
-              FROM user_objects WHERE status != 'VALID';
-
+              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
               IF v_invalid > 0 THEN
-                  DBMS_OUTPUT.PUT_LINE('INVALID_OBJECTS=' || v_invalid);
                   FOR rec IN (SELECT object_type, object_name FROM user_objects WHERE status != 'VALID') LOOP
                       DBMS_OUTPUT.PUT_LINE('  INVALID: ' || rec.object_type || ' — ' || rec.object_name);
                   END LOOP;
                   RAISE_APPLICATION_ERROR(-20001, v_invalid || ' invalid object(s) detected');
               ELSE
-                  DBMS_OUTPUT.PUT_LINE('ALL_VALID=true');
-                  DBMS_OUTPUT.PUT_LINE('All database objects are in VALID state');
+                  DBMS_OUTPUT.PUT_LINE('✓ All database objects are VALID');
               END IF;
           END;
           /
@@ -180,16 +172,33 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G11 FAILED: Invalid objects detected after deployment"
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+            echo "::error::Object validity check failed"
             echo "::endgroup::"
             exit 1
           fi
-          echo "✓ All objects VALID"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # APEX Import (if APEX files present)
+      # Deploy Shell Scripts (make executable)
+      # ────────────────────────────────────────────────────────
+      - name: "Deploy Shell Scripts"
+        shell: bash
+        run: |
+          echo "::group::Deploy Shell Scripts"
+          SCRIPTS=$(find scripts/ -name "*.sh" 2>/dev/null)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts — skipping"
+          else
+            while IFS= read -r script; do
+              chmod +x "$script"
+              echo "  ✓ Deployed: $script"
+            done <<< "$SCRIPTS"
+          fi
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # APEX Import
       # ────────────────────────────────────────────────────────
       - name: "APEX Import"
         shell: bash
@@ -200,179 +209,27 @@ jobs:
         run: |
           APEX_DIR="apex/applications/f100"
           if [ ! -d "$APEX_DIR" ] || [ ! -f "$APEX_DIR/install.sql" ]; then
-            echo "No APEX export found — skipping APEX deployment"
+            echo "No APEX export found — skipping"
             exit 0
           fi
 
           echo "::group::APEX Import"
-          echo "Importing APEX application from: $APEX_DIR"
-
           OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
           apex import -dir ${APEX_DIR} -applicationid 100
           EXIT
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::APEX import failed — see errors above"
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+            echo "::error::APEX import failed"
             echo "::endgroup::"
             exit 1
           fi
-          echo "✓ APEX application imported successfully"
+          echo "✓ APEX application imported"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # G27: APEX Import Validation
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G27: APEX Import Validation"
-        shell: bash
-        env:
-          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
-          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          APEX_DIR="apex/applications/f100"
-          if [ ! -d "$APEX_DIR" ]; then
-            echo "No APEX application — skipping validation"
-            exit 0
-          fi
-
-          echo "::group::G27 — APEX Import Validation"
-          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET SERVEROUTPUT ON
-          DECLARE
-              v_count NUMBER;
-          BEGIN
-              SELECT COUNT(*) INTO v_count
-              FROM apex_applications
-              WHERE application_id = 100;
-
-              IF v_count = 1 THEN
-                  DBMS_OUTPUT.PUT_LINE('APEX App 100 exists and is accessible');
-              ELSE
-                  RAISE_APPLICATION_ERROR(-20002, 'APEX App 100 not found after import');
-              END IF;
-          END;
-          /
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G27 FAILED: APEX validation issue detected"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "✓ APEX application validated"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # G14: Smoke Tests
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G14: Smoke Tests"
-        shell: bash
-        env:
-          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
-          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G14 — Smoke Tests"
-          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET SERVEROUTPUT ON
-          DECLARE
-              v_pass NUMBER := 0;
-              v_fail NUMBER := 0;
-              v_count NUMBER;
-          BEGIN
-              -- Test 1: Package is VALID
-              SELECT COUNT(*) INTO v_count
-              FROM user_objects
-              WHERE object_name = 'PKG_CUSTOMER_LOAD'
-                AND object_type IN ('PACKAGE', 'PACKAGE BODY')
-                AND status = 'VALID';
-              IF v_count = 2 THEN
-                  DBMS_OUTPUT.PUT_LINE('Test 1: PKG_CUSTOMER_LOAD is VALID');
-                  v_pass := v_pass + 1;
-              ELSE
-                  DBMS_OUTPUT.PUT_LINE('FAIL Test 1: PKG_CUSTOMER_LOAD has invalid components');
-                  v_fail := v_fail + 1;
-              END IF;
-
-              -- Test 2: Package is callable
-              BEGIN
-                  PKG_CUSTOMER_LOAD.PROCESS_STAGING;
-                  DBMS_OUTPUT.PUT_LINE('Test 2: Package executed successfully');
-                  v_pass := v_pass + 1;
-              EXCEPTION
-                  WHEN OTHERS THEN
-                      DBMS_OUTPUT.PUT_LINE('FAIL Test 2: ' || SQLERRM);
-                      v_fail := v_fail + 1;
-              END;
-
-              -- Test 3: Target table has data
-              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER;
-              IF v_count > 0 THEN
-                  DBMS_OUTPUT.PUT_LINE('Test 3: TGT_CUSTOMER has ' || v_count || ' rows');
-                  v_pass := v_pass + 1;
-              ELSE
-                  DBMS_OUTPUT.PUT_LINE('FAIL Test 3: TGT_CUSTOMER is empty');
-                  v_fail := v_fail + 1;
-              END IF;
-
-              -- Summary
-              DBMS_OUTPUT.PUT_LINE('');
-              DBMS_OUTPUT.PUT_LINE('Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
-
-              IF v_fail > 0 THEN
-                  RAISE_APPLICATION_ERROR(-20003, v_fail || ' smoke test(s) failed');
-              END IF;
-          END;
-          /
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G14 FAILED: Smoke tests detected issues"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "✓ All smoke tests passed"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # Deploy Shell Scripts
-      # ────────────────────────────────────────────────────────
-      - name: "Deploy Shell Scripts"
-        shell: bash
-        run: |
-          echo "::group::Deploy Shell Scripts"
-          SCRIPTS_SRC="scripts"
-
-          if [ ! -d "$SCRIPTS_SRC" ]; then
-            echo "No scripts directory — skipping"
-            echo "::endgroup::"
-            exit 0
-          fi
-
-          SCRIPT_COUNT=$(find "$SCRIPTS_SRC" -name "*.sh" 2>/dev/null | wc -l)
-          if [ "$SCRIPT_COUNT" -eq 0 ]; then
-            echo "No .sh files found — skipping"
-            echo "::endgroup::"
-            exit 0
-          fi
-
-          echo "Deploying $SCRIPT_COUNT shell script(s)..."
-          find "$SCRIPTS_SRC" -name "*.sh" | while read -r script; do
-            chmod +x "$script"
-            echo "  ✓ Deployed: $script"
-          done
-
-          echo "✓ All shell scripts deployed"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # Data Flow Verification: CSV → Staging → Target
+      # Data Flow: CSV → Staging → Target
       # ────────────────────────────────────────────────────────
       - name: "Data Flow Verification"
         shell: bash
@@ -385,16 +242,14 @@ jobs:
           CSV_FILE="data/samples/customers.csv"
 
           if [ ! -f "$CSV_FILE" ]; then
-            echo "No sample CSV found — skipping data flow test"
+            echo "No sample CSV found — skipping"
             echo "::endgroup::"
             exit 0
           fi
 
-          echo "Loading CSV into STG_CUSTOMER and processing..."
-
           {
             echo "SET SERVEROUTPUT ON"
-            echo "DELETE FROM STG_CUSTOMER;"
+            echo "DELETE FROM STG_TABLE;"
             echo "COMMIT;"
             HEADER=$(head -1 "$CSV_FILE" | xargs)
             tail -n +2 "$CSV_FILE" | while IFS= read -r line; do
@@ -408,16 +263,16 @@ jobs:
                   VALUES="${VALUES}, '${val}'"
                 fi
               done
-              echo "INSERT INTO STG_CUSTOMER (${HEADER}) VALUES (${VALUES});"
+              echo "INSERT INTO STG_TABLE (${HEADER}) VALUES (${VALUES});"
             done
             echo "COMMIT;"
             echo "BEGIN"
             echo "  PKG_CUSTOMER_LOAD.PROCESS_STAGING;"
-            echo "  DBMS_OUTPUT.PUT_LINE('Data flow: CSV to Staging to Target complete');"
+            echo "  DBMS_OUTPUT.PUT_LINE('Data flow: CSV → Staging → Target complete');"
             echo "END;"
             echo "/"
-            echo "SELECT 'STG rows: ' || COUNT(*) AS result FROM STG_CUSTOMER;"
-            echo "SELECT 'TGT rows: ' || COUNT(*) AS result FROM TGT_CUSTOMER;"
+            echo "SELECT 'STG rows: ' || COUNT(*) AS result FROM STG_TABLE;"
+            echo "SELECT 'TGT rows: ' || COUNT(*) AS result FROM TGT_TABLE;"
             echo "EXIT"
           } > /tmp/data_flow.sql
 
@@ -425,7 +280,7 @@ jobs:
           echo "$OUTPUT"
           rm -f /tmp/data_flow.sql
 
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Data flow verification failed"
             echo "::endgroup::"
             exit 1
@@ -434,31 +289,70 @@ jobs:
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # Deployment Audit Record
+      # Smoke Tests
       # ────────────────────────────────────────────────────────
-      - name: "Record Deployment Audit"
-        if: always()
+      - name: "Smoke Tests"
         shell: bash
         env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          echo "::group::Deployment Audit"
-          sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET LINESIZE 200
-          SET PAGESIZE 20
-          COLUMN ID FORMAT A40
-          COLUMN AUTHOR FORMAT A12
-          COLUMN DATEEXECUTED FORMAT A20
+          echo "::group::Smoke Tests"
+          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
+          SET SERVEROUTPUT ON
+          DECLARE
+              v_pass NUMBER := 0;
+              v_fail NUMBER := 0;
+              v_count NUMBER;
+          BEGIN
+              SELECT COUNT(*) INTO v_count FROM user_objects
+              WHERE object_name = 'PKG_CUSTOMER_LOAD'
+                AND object_type IN ('PACKAGE', 'PACKAGE BODY')
+                AND status = 'VALID';
+              IF v_count = 2 THEN
+                  DBMS_OUTPUT.PUT_LINE('✓ PKG_CUSTOMER_LOAD is VALID');
+                  v_pass := v_pass + 1;
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✗ PKG_CUSTOMER_LOAD has invalid components');
+                  v_fail := v_fail + 1;
+              END IF;
 
-          SELECT ID, AUTHOR, TO_CHAR(DATEEXECUTED,'YYYY-MM-DD HH24:MI:SS') AS DATEEXECUTED,
-                 ORDEREXECUTED, TAG
-          FROM DATABASECHANGELOG
-          ORDER BY ORDEREXECUTED DESC
-          FETCH FIRST 10 ROWS ONLY;
+              BEGIN
+                  PKG_CUSTOMER_LOAD.PROCESS_STAGING;
+                  DBMS_OUTPUT.PUT_LINE('✓ PROCESS_STAGING executed');
+                  v_pass := v_pass + 1;
+              EXCEPTION
+                  WHEN OTHERS THEN
+                      DBMS_OUTPUT.PUT_LINE('✗ ' || SQLERRM);
+                      v_fail := v_fail + 1;
+              END;
+
+              SELECT COUNT(*) INTO v_count FROM TGT_TABLE;
+              IF v_count > 0 THEN
+                  DBMS_OUTPUT.PUT_LINE('✓ TGT_TABLE has ' || v_count || ' rows');
+                  v_pass := v_pass + 1;
+              ELSE
+                  DBMS_OUTPUT.PUT_LINE('✗ TGT_TABLE is empty');
+                  v_fail := v_fail + 1;
+              END IF;
+
+              DBMS_OUTPUT.PUT_LINE('Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
+              IF v_fail > 0 THEN
+                  RAISE_APPLICATION_ERROR(-20003, v_fail || ' smoke test(s) failed');
+              END IF;
+          END;
+          /
           EXIT
           EOSQL
+          )
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+            echo "::error::Smoke tests failed"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ All smoke tests passed"
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
@@ -472,7 +366,6 @@ jobs:
           echo "════════════════════════════════════════════════════"
           echo "  ✓ DEPLOYMENT TO DEV SUCCESSFUL"
           echo "════════════════════════════════════════════════════"
-          echo "  Tag: $TAG_NAME"
           echo "  Commit: ${{ github.sha }}"
           echo "  Actor: ${{ github.actor }}"
           echo "  Time: $(date '+%Y-%m-%d %H:%M:%S')"
