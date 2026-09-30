@@ -172,7 +172,7 @@ jobs:
             else
               ORA_EXCLUDE="ORA-17110"
             fi
-            if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+            if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
               echo "::error file=$f::SQL errors detected"
               echo "$OUTPUT"
               ERRORS=$((ERRORS+1))

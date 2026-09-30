@@ -81,7 +81,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Database not healthy"
             echo "::endgroup::"
             exit 1
@@ -122,7 +122,7 @@ jobs:
           EOSQL
                 )
                 echo "$OUTPUT"
-                if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+                if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
                   echo "::error file=$script::Deployment failed"
                   ERRORS=$((ERRORS+1))
                 else
@@ -172,7 +172,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Object validity check failed"
             echo "::endgroup::"
             exit 1
@@ -214,7 +214,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::APEX import failed"
             echo "::endgroup::"
             exit 1
@@ -268,7 +268,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Production smoke tests failed"
             echo "::endgroup::"
             exit 1
@@ -307,7 +307,7 @@ jobs:
           EOSQL
           )
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
             echo "::error::Performance check error"
             echo "::endgroup::"
             exit 1
