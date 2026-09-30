@@ -1,6 +1,6 @@
-SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE,CUSTOMER_CATEGORY,CUSTOMER_REGION,CUSTOMER_INDUSTRY,CUSTOMER_COUNTRY
-CRM,Alpha Technologies,alpha@alphatech.com,+1-555-0201,GOLD,US-EAST,Technology,USA
-CRM,Beta Solutions,info@betasol.com,+1-555-0202,SILVER,US-WEST,Healthcare,Canada
-CRM,Gamma Financial,contact@gammafin.com,+1-555-0203,GOLD,US-CENTRAL,Finance,USA
-CRM,Delta Manufacturing,sales@deltamfg.com,+1-555-0204,BRONZE,US-EAST,Manufacturing,Germany
-CRM,Epsilon Retail,info@epsilonretail.com,+1-555-0205,SILVER,US-WEST,Retail,UK
+CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM
+Alpha Technologies,alpha@alphatech.com,CRM
+Beta Solutions,info@betasol.com,CRM
+Gamma Financial,contact@gammafin.com,CRM
+Delta Manufacturing,sales@deltamfg.com,CRM
+Epsilon Retail,info@epsilonretail.com,CRM
