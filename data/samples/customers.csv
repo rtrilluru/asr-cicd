@@ -1,10 +1,6 @@
-SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE,CUSTOMER_CATEGORY,CUSTOMER_REGION
-FLATFILE,Alpha Technologies,alpha@alphatech.com,+1-555-0201,GOLD,US-EAST
-FLATFILE,Beta Solutions,info@betasol.com,+1-555-0202,SILVER,US-WEST
-FLATFILE,Gamma Analytics,contact@gamma.io,+1-555-0203,GOLD,EU-WEST
-FLATFILE,Delta Systems,hello@deltasys.com,+1-555-0204,BRONZE,US-EAST
-FLATFILE,Epsilon Corp,sales@epsilon.com,+1-555-0205,SILVER,AP-SOUTH
-FLATFILE,Acme Corporation,info@acmecorp.com,+1-555-0301,GOLD,US-WEST
-FLATFILE,Wayne Enterprises,bruce@wayne.com,+1-555-0302,GOLD,US-EAST
-FLATFILE,Stark Industries,tony@stark.com,+1-555-0303,GOLD,EU-WEST
-FLATFILE,Umbrella Corp,contact@umbrella.com,+1-555-0304,BRONZE,AP-SOUTH
+SOURCE_SYSTEM,CUSTOMER_NAME,CUSTOMER_EMAIL,CUSTOMER_PHONE,CUSTOMER_CATEGORY,CUSTOMER_REGION,CUSTOMER_INDUSTRY,CUSTOMER_COUNTRY
+CRM,Alpha Technologies,alpha@alphatech.com,+1-555-0201,GOLD,US-EAST,Technology,USA
+CRM,Beta Solutions,info@betasol.com,+1-555-0202,SILVER,US-WEST,Healthcare,Canada
+CRM,Gamma Financial,contact@gammafin.com,+1-555-0203,GOLD,US-CENTRAL,Finance,USA
+CRM,Delta Manufacturing,sales@deltamfg.com,+1-555-0204,BRONZE,US-EAST,Manufacturing,Germany
+CRM,Epsilon Retail,info@epsilonretail.com,+1-555-0205,SILVER,US-WEST,Retail,UK
