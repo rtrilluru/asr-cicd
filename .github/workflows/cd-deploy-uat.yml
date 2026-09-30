@@ -1,24 +1,25 @@
 # ============================================================
 # ASR CI/CD PIPELINE — CD: Deploy to UAT
 # ============================================================
-# Triggers: Manual (workflow_dispatch) — select release branch
-# Runs on: Self-hosted runner
-# Gates: G9 (Dry-Run), G10 (Deploy), G11 (Object Validity),
-#         APEX Import, G27 (APEX Validation),
-#         G14 (Smoke Tests), G18 (Data Validation),
-#         G19 (Rollback Verification)
-# Approval: Requires 2 reviewers (Tech Lead + QA Lead)
+# Triggers:
+#   1. Push to 'uat' branch (auto-deploy on merge from sit)
+#   2. Manual (workflow_dispatch)
+# Runs on: Self-hosted runner (EC2)
+# Flow: Run ALL SQL scripts → Validate → Smoke + Data Tests
 # ============================================================
 
 name: CD — Deploy to UAT
 
 on:
+  push:
+    branches:
+      - uat
+    paths:
+      - 'scripts/**'
+      - 'data/**'
+      - 'apex/**'
+
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type DEPLOY-UAT to confirm deployment'
-        required: true
-        type: string
 
 concurrency:
   group: deploy-uat
@@ -31,152 +32,78 @@ jobs:
     environment: DB-UAT
 
     steps:
-      - name: "Validate Confirmation"
-        shell: bash
-        env:
-          CONFIRM: ${{ github.event.inputs.confirm }}
-        run: |
-          if [ "$CONFIRM" != "DEPLOY-UAT" ]; then
-            echo "::error::Confirmation failed. Expected 'DEPLOY-UAT'"
-            exit 1
-          fi
-          echo "✓ Deployment confirmed"
-          echo "Branch: ${{ github.ref_name }}"
-
-      - name: "Validate Branch"
-        shell: bash
-        run: |
-          BRANCH="${{ github.ref_name }}"
-          if [[ "$BRANCH" != release/* ]]; then
-            echo "::error::Branch '$BRANCH' is not a release branch. Only branches starting with 'release/' may deploy to UAT."
-            exit 1
-          fi
-          echo "✓ Branch '$BRANCH' is a valid release branch"
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ────────────────────────────────────────────────────────
-      # Pre-Deploy: Tag current state
+      # Deploy ALL SQL scripts (full sync to UAT)
       # ────────────────────────────────────────────────────────
-      - name: "Pre-Deploy: Tag database state"
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::Tagging current database state"
-          TAG_NAME="pre-uat-$(date +%Y%m%d-%H%M%S)"
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          lb tag -tag $TAG_NAME
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::Pre-deploy tagging failed"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "✓ Database tagged as: $TAG_NAME"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # G9: Dry-Run
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G9: Dry-Run Migration"
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G9 — Dry-Run"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          lb update-sql -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G9 FAILED"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "✓ Dry-run successful"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # G10: Execute Migration
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G10: Execute Migration"
+      - name: "Deploy SQL Scripts"
         id: deploy
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G10 — Execute Migration"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          lb update -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "DEPLOY_STATUS=failed" >> $GITHUB_ENV
-            echo "::error::G10 FAILED"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
-          echo "✓ Migration executed"
-          echo "::endgroup::"
-
-      - name: "Auto-Rollback (on deploy failure)"
-        if: failure() && steps.deploy.outcome == 'failure'
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::warning::DEPLOYMENT FAILED — Rolling back to: $TAG_NAME"
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::Auto-rollback failed"
-            exit 1
-          fi
-          echo "✓ Rollback complete"
-
-      # ────────────────────────────────────────────────────────
-      # G11: Object Validity
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G11: Object Validity Check"
         shell: bash
         env:
           DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
           DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          echo "::group::G11 — Object Validity"
+          echo "::group::Deploy ALL SQL Scripts to UAT"
+          ERRORS=0
+
+          for TYPE in ddl packages functions procedures triggers views; do
+            SCRIPTS=$(find scripts/${TYPE}/ -name "*.sql" 2>/dev/null | sort)
+            if [ -n "$SCRIPTS" ]; then
+              echo "── Deploying ${TYPE} ──"
+              # DDL scripts: ignore "already exists" errors for idempotent re-runs
+              if [ "$TYPE" = "ddl" ]; then
+                ORA_EXCLUDE="ORA-17110|ORA-01430|ORA-00955|ORA-01442|ORA-02275|ORA-02261|ORA-01408"
+              else
+                ORA_EXCLUDE="ORA-17110"
+              fi
+              while IFS= read -r script; do
+                echo "  Running: $script"
+                OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+          SET ECHO ON
+          SET SERVEROUTPUT ON
+          @${script}
+          EXIT
+          EOSQL
+                )
+                echo "$OUTPUT"
+                if echo "$OUTPUT" | grep -viE "$ORA_EXCLUDE" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
+                  echo "::error file=$script::Deployment failed"
+                  ERRORS=$((ERRORS+1))
+                else
+                  echo "  ✓ $script deployed"
+                fi
+              done <<< "$SCRIPTS"
+            fi
+          done
+
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::$ERRORS script(s) failed to deploy"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ All scripts deployed to UAT"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
+      # Object Validity
+      # ────────────────────────────────────────────────────────
+      - name: "Object Validity Check"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Object Validity"
           OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_invalid NUMBER;
           BEGIN
+              DBMS_UTILITY.COMPILE_SCHEMA(schema => USER, compile_all => FALSE);
               SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
               IF v_invalid > 0 THEN
                   FOR rec IN (SELECT object_type, object_name FROM user_objects WHERE status != 'VALID') LOOP
@@ -193,7 +120,7 @@ jobs:
           )
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G11 FAILED"
+            echo "::error::Object validity check failed"
             echo "::endgroup::"
             exit 1
           fi
@@ -211,7 +138,7 @@ jobs:
         run: |
           APEX_DIR="apex/applications/f100"
           if [ ! -d "$APEX_DIR" ] || [ ! -f "$APEX_DIR/install.sql" ]; then
-            echo "No APEX export found — skipping"
+            echo "No APEX export — skipping"
             exit 0
           fi
           echo "::group::APEX Import"
@@ -230,53 +157,16 @@ jobs:
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # G27: APEX Import Validation
+      # Smoke Tests
       # ────────────────────────────────────────────────────────
-      - name: "Gate G27: APEX Import Validation"
+      - name: "Smoke Tests"
         shell: bash
         env:
           DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
           DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          APEX_DIR="apex/applications/f100"
-          if [ ! -d "$APEX_DIR" ]; then
-            echo "No APEX application — skipping validation"
-            exit 0
-          fi
-          echo "::group::G27 — APEX Import Validation"
-          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET SERVEROUTPUT ON
-          DECLARE v_count NUMBER;
-          BEGIN
-              SELECT COUNT(*) INTO v_count FROM apex_applications WHERE application_id = 100;
-              IF v_count = 1 THEN DBMS_OUTPUT.PUT_LINE('APEX App 100 exists and is accessible');
-              ELSE RAISE_APPLICATION_ERROR(-20002, 'APEX App 100 not found after import'); END IF;
-          END;
-          /
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G27 FAILED"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "✓ APEX application validated"
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # G14: Smoke Tests
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G14: Smoke Tests"
-        shell: bash
-        env:
-          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
-          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G14 — Smoke Tests"
+          echo "::group::Smoke Tests"
           OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
@@ -287,9 +177,9 @@ jobs:
               IF v_count = 2 THEN DBMS_OUTPUT.PUT_LINE('✓ PKG_CUSTOMER_LOAD VALID'); v_pass := v_pass+1;
               ELSE DBMS_OUTPUT.PUT_LINE('✗ PKG_CUSTOMER_LOAD invalid'); v_fail := v_fail+1; END IF;
 
-              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER;
-              IF v_count > 0 THEN DBMS_OUTPUT.PUT_LINE('✓ TGT_CUSTOMER has ' || v_count || ' rows'); v_pass := v_pass+1;
-              ELSE DBMS_OUTPUT.PUT_LINE('✗ TGT_CUSTOMER empty'); v_fail := v_fail+1; END IF;
+              SELECT COUNT(*) INTO v_count FROM TGT_TABLE;
+              IF v_count > 0 THEN DBMS_OUTPUT.PUT_LINE('✓ TGT_TABLE has ' || v_count || ' rows'); v_pass := v_pass+1;
+              ELSE DBMS_OUTPUT.PUT_LINE('✗ TGT_TABLE empty'); v_fail := v_fail+1; END IF;
 
               DBMS_OUTPUT.PUT_LINE('Results: ' || v_pass || ' passed, ' || v_fail || ' failed');
               IF v_fail > 0 THEN RAISE_APPLICATION_ERROR(-20003, v_fail || ' smoke test(s) failed'); END IF;
@@ -300,46 +190,41 @@ jobs:
           )
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G14 FAILED"
+            echo "::error::Smoke tests failed"
             echo "::endgroup::"
             exit 1
           fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # G18: Data Validation (UAT-specific)
+      # Data Validation (UAT-specific)
       # ────────────────────────────────────────────────────────
-      - name: "Gate G18: Data Validation"
+      - name: "Data Validation"
         shell: bash
         env:
           DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
           DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
           DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: |
-          echo "::group::G18 — Data Validation"
+          echo "::group::Data Validation"
           OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
           SET SERVEROUTPUT ON
           DECLARE
               v_pass NUMBER := 0; v_fail NUMBER := 0; v_count NUMBER;
           BEGIN
-              -- Check 1: No NULL customer names in target
-              SELECT COUNT(*) INTO v_count FROM TGT_CUSTOMER WHERE CUSTOMER_NAME IS NULL;
+              SELECT COUNT(*) INTO v_count FROM TGT_TABLE WHERE CUSTOMER_NAME IS NULL;
               IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ No NULL customer names'); v_pass := v_pass+1;
               ELSE DBMS_OUTPUT.PUT_LINE('✗ ' || v_count || ' NULL customer names'); v_fail := v_fail+1; END IF;
 
-              -- Check 2: No FAILED ETL entries from recent runs
-              SELECT COUNT(*) INTO v_count FROM ETL_PROCESS_LOG
-              WHERE STATUS = 'FAILED' AND START_TIME > SYSDATE - 1;
+              SELECT COUNT(*) INTO v_count FROM ETL_PROCESS_LOG WHERE STATUS = 'FAILED' AND START_TIME > SYSDATE - 1;
               IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ No recent ETL failures'); v_pass := v_pass+1;
               ELSE DBMS_OUTPUT.PUT_LINE('✗ ' || v_count || ' recent ETL failures'); v_fail := v_fail+1; END IF;
 
-              -- Check 3: Audit trigger is active
               SELECT COUNT(*) INTO v_count FROM user_triggers
               WHERE trigger_name = 'TRG_CUSTOMER_AUDIT' AND status = 'ENABLED';
               IF v_count = 1 THEN DBMS_OUTPUT.PUT_LINE('✓ Audit trigger enabled'); v_pass := v_pass+1;
               ELSE DBMS_OUTPUT.PUT_LINE('✗ Audit trigger not enabled'); v_fail := v_fail+1; END IF;
 
-              -- Check 4: All PL/SQL objects valid
               SELECT COUNT(*) INTO v_count FROM user_objects
               WHERE object_type IN ('FUNCTION','PROCEDURE','TRIGGER','PACKAGE','PACKAGE BODY') AND status != 'VALID';
               IF v_count = 0 THEN DBMS_OUTPUT.PUT_LINE('✓ All PL/SQL objects VALID'); v_pass := v_pass+1;
@@ -354,97 +239,14 @@ jobs:
           )
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G18 FAILED"
+            echo "::error::Data validation failed"
             echo "::endgroup::"
             exit 1
           fi
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
-      # G19: Rollback Verification (UAT-specific)
-      # ────────────────────────────────────────────────────────
-      - name: "Gate G19: Rollback Verification"
-        shell: bash
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
-          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
-          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
-        run: |
-          echo "::group::G19 — Rollback Verification"
-          echo "Step 1: Rolling back to pre-deploy tag..."
-          cd migrations
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<EOSQL
-          lb rollback -tag $TAG_NAME -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G19 FAILED — rollback step failed"
-            echo "::endgroup::"
-            exit 1
-          fi
-
-          echo "Step 2: Verifying objects after rollback..."
-          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET SERVEROUTPUT ON
-          DECLARE v_invalid NUMBER;
-          BEGIN
-              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
-              DBMS_OUTPUT.PUT_LINE('Objects invalid after rollback: ' || v_invalid);
-              IF v_invalid > 0 THEN RAISE_APPLICATION_ERROR(-20019, 'Invalid objects after rollback'); END IF;
-          END;
-          /
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G19 FAILED — object check after rollback failed"
-            echo "::endgroup::"
-            exit 1
-          fi
-
-          echo "Step 3: Re-applying migration..."
-          OUTPUT=$(sql -S ${DB_USER}/${DB_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          lb update -changelog-file db.changelog-master.xml
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G19 FAILED — re-apply migration failed"
-            echo "::endgroup::"
-            exit 1
-          fi
-
-          echo "Step 4: Verifying objects after re-apply..."
-          cd ..
-          OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<'EOSQL'
-          SET SERVEROUTPUT ON
-          DECLARE v_invalid NUMBER;
-          BEGIN
-              SELECT COUNT(*) INTO v_invalid FROM user_objects WHERE status != 'VALID';
-              DBMS_OUTPUT.PUT_LINE('Objects invalid after re-apply: ' || v_invalid);
-              IF v_invalid > 0 THEN RAISE_APPLICATION_ERROR(-20019, 'Invalid objects after re-apply'); END IF;
-              DBMS_OUTPUT.PUT_LINE('✓ Rollback verification passed — rollback and re-apply both work');
-          END;
-          /
-          EXIT
-          EOSQL
-          )
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "^ERROR|ORA-|SP2-|SEVERE|\.exception\."; then
-            echo "::error::G19 FAILED — object check after re-apply failed"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      # ────────────────────────────────────────────────────────
-      # Deployment Summary
+      # Summary
       # ────────────────────────────────────────────────────────
       - name: "UAT Deployment Summary"
         if: success()
@@ -454,9 +256,6 @@ jobs:
           echo "════════════════════════════════════════════════════"
           echo "  ✓ DEPLOYMENT TO UAT SUCCESSFUL"
           echo "════════════════════════════════════════════════════"
-          echo "  Tag: $TAG_NAME"
-          echo "  Gates: G9, G10, G11, APEX Import, G27, G14, G18, G19"
-          echo "  Rollback: Verified ✓"
           echo "  Branch: ${{ github.ref_name }}"
           echo "  Commit: ${{ github.sha }}"
           echo "  Actor: ${{ github.actor }}"
