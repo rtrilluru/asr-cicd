@@ -1,6 +1,6 @@
-CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE
-Alpha Technologies,alpha@alphatech.com,CRM,150000
-Beta Solutions,info@betasol.com,CRM,85000
-Gamma Financial,contact@gammafin.com,CRM,320000
-Delta Manufacturing,sales@deltamfg.com,CRM,210000
-Epsilon Retail,info@epsilonretail.com,CRM,95000
+CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE,CUSTOMER_CATEGORY
+Alpha Technologies,alpha@alphatech.com,CRM,150000,Premium
+Beta Solutions,info@betasol.com,CRM,85000,Standard
+Gamma Financial,contact@gammafin.com,CRM,320000,Premium
+Delta Manufacturing,sales@deltamfg.com,CRM,210000,Premium
+Epsilon Retail,info@epsilonretail.com,CRM,95000,Basic
