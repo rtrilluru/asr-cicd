@@ -170,6 +170,66 @@ jobs:
           echo "::endgroup::"
 
       # ────────────────────────────────────────────────────────
+      # Data Flow: CSV → Staging → Target
+      # ────────────────────────────────────────────────────────
+      - name: "Data Flow Verification"
+        shell: bash
+        env:
+          DB_OWNER_USER: ${{ secrets.DB_OWNER_USER }}
+          DB_OWNER_PASSWORD: ${{ secrets.DB_OWNER_PASSWORD }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+        run: |
+          echo "::group::Data Flow — CSV → Staging → Target"
+          CSV_FILE="data/samples/customers.csv"
+
+          if [ ! -f "$CSV_FILE" ]; then
+            echo "No sample CSV found — skipping"
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          {
+            echo "SET SERVEROUTPUT ON"
+            echo "DELETE FROM STG_TABLE;"
+            echo "COMMIT;"
+            HEADER=$(head -1 "$CSV_FILE" | xargs)
+            tail -n +2 "$CSV_FILE" | while IFS= read -r line; do
+              IFS=',' read -ra FIELDS <<< "$line"
+              VALUES=""
+              for field in "${FIELDS[@]}"; do
+                val=$(echo "$field" | xargs | sed "s/'/''/g")
+                if [ -z "$VALUES" ]; then
+                  VALUES="'${val}'"
+                else
+                  VALUES="${VALUES}, '${val}'"
+                fi
+              done
+              echo "INSERT INTO STG_TABLE (${HEADER}) VALUES (${VALUES});"
+            done
+            echo "COMMIT;"
+            echo "BEGIN"
+            echo "  PKG_CUSTOMER_LOAD.PROCESS_STAGING;"
+            echo "  DBMS_OUTPUT.PUT_LINE('Data flow: CSV → Staging → Target complete');"
+            echo "END;"
+            echo "/"
+            echo "SELECT 'STG rows: ' || COUNT(*) AS result FROM STG_TABLE;"
+            echo "SELECT 'TGT rows: ' || COUNT(*) AS result FROM TGT_TABLE;"
+            echo "EXIT"
+          } > /tmp/data_flow.sql
+
+          OUTPUT=$(sql -S "${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION}" @/tmp/data_flow.sql)
+          echo "$OUTPUT"
+          rm -f /tmp/data_flow.sql
+
+          if echo "$OUTPUT" | grep -viE "ORA-17110" | grep -qiE "ORA-|SP2-|SEVERE|\.exception\."; then
+            echo "::error::Data flow verification failed"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "✓ Data flow verification complete"
+          echo "::endgroup::"
+
+      # ────────────────────────────────────────────────────────
       # Smoke Tests
       # ────────────────────────────────────────────────────────
       - name: "Smoke Tests"
