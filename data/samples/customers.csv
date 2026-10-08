@@ -1,6 +1,6 @@
-CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE,CUSTOMER_CATEGORY,CUSTOMER_PHONE,CUSTOMER_COUNTRY
-Alpha Technologies,alpha@alphatech.com,CRM,150000,Premium,+1-555-0101,USA
-Beta Solutions,info@betasol.com,CRM,85000,Standard,+44-20-7946-0958,UK
-Gamma Financial,contact@gammafin.com,CRM,320000,Premium,+91-22-2345-6789,India
-Delta Manufacturing,sales@deltamfg.com,CRM,210000,Premium,+49-30-1234-5678,Germany
-Epsilon Retail,info@epsilonretail.com,CRM,95000,Basic,+81-3-5678-1234,Japan
+CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE,CUSTOMER_CATEGORY,CUSTOMER_PHONE,CUSTOMER_COUNTRY,CUSTOMER_INDUSTRY
+Alpha Technologies,alpha@alphatech.com,CRM,150000,Premium,+1-555-0101,USA,Technology
+Beta Solutions,info@betasol.com,CRM,85000,Standard,+44-20-7946-0958,UK,Consulting
+Gamma Financial,contact@gammafin.com,CRM,320000,Premium,+91-22-2345-6789,India,Finance
+Delta Manufacturing,sales@deltamfg.com,CRM,210000,Premium,+49-30-1234-5678,Germany,Manufacturing
+Epsilon Retail,info@epsilonretail.com,CRM,95000,Basic,+81-3-5678-1234,Japan,Retail
