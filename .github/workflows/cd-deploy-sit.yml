@@ -61,7 +61,7 @@ jobs:
               fi
               while IFS= read -r script; do
                 echo "  Running: $script"
-                OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL
+                OUTPUT=$(sql -S ${DB_OWNER_USER}/${DB_OWNER_PASSWORD}@${DB_CONNECTION} <<EOSQL || true
           SET ECHO ON
           SET SERVEROUTPUT ON
           @${script}
