@@ -1,6 +1,6 @@
-CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE,CUSTOMER_CATEGORY,CUSTOMER_PHONE,CUSTOMER_COUNTRY,CUSTOMER_INDUSTRY,CUSTOMER_REGION,CUSTOMER_TIER
-Alpha Technologies,alpha@alphatech.com,CRM,150000,Premium,+1-555-0101,USA,Technology,North America,Gold
-Beta Solutions,info@betasol.com,CRM,85000,Standard,+44-20-7946-0958,UK,Consulting,EMEA,Silver
-Gamma Financial,contact@gammafin.com,CRM,320000,Premium,+91-22-2345-6789,India,Finance,APAC,Gold
-Delta Manufacturing,sales@deltamfg.com,CRM,210000,Premium,+49-30-1234-5678,Germany,Manufacturing,EMEA,Gold
-Epsilon Retail,info@epsilonretail.com,CRM,95000,Basic,+81-3-5678-1234,Japan,Retail,APAC,Bronze
+CUSTOMER_NAME,CUSTOMER_EMAIL,SOURCE_SYSTEM,CUSTOMER_REVENUE,CUSTOMER_CATEGORY,CUSTOMER_PHONE,CUSTOMER_COUNTRY,CUSTOMER_INDUSTRY,CUSTOMER_REGION,CUSTOMER_TIER,CUSTOMER_STATUS
+Alpha Technologies,alpha@alphatech.com,CRM,150000,Premium,+1-555-0101,USA,Technology,North America,Gold,Active
+Beta Solutions,info@betasol.com,CRM,85000,Standard,+44-20-7946-0958,UK,Consulting,EMEA,Silver,Active
+Gamma Financial,contact@gammafin.com,CRM,320000,Premium,+91-22-2345-6789,India,Finance,APAC,Gold,Active
+Delta Manufacturing,sales@deltamfg.com,CRM,210000,Premium,+49-30-1234-5678,Germany,Manufacturing,EMEA,Gold,Inactive
+Epsilon Retail,info@epsilonretail.com,CRM,95000,Basic,+81-3-5678-1234,Japan,Retail,APAC,Bronze,Suspended
